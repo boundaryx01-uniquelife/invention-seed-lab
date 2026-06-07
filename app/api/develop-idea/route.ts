@@ -39,7 +39,8 @@ const developResponseSchema = {
     "productSearchKeywords",
     "differentiationPoints",
     "guidanceForStudent"
-  ]
+  ],
+  additionalProperties: false
 };
 
 const systemInstruction = `

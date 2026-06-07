@@ -10,7 +10,7 @@ export class OpenAIProvider implements AiProvider {
     this.modelName = process.env.OPENAI_MODEL || "gpt-4o-mini";
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
+      this.openai = new OpenAI({ apiKey: apiKey.trim() });
     }
   }
 

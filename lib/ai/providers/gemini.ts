@@ -10,7 +10,7 @@ export class GeminiProvider implements AiProvider {
     this.modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
+      this.genAI = new GoogleGenerativeAI(apiKey.trim());
     }
   }
 

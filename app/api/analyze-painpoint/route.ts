@@ -29,7 +29,8 @@ const painpointResponseSchema = {
           reason: { type: "string", description: "추천 이유" },
           risk: { type: "string", description: "유사 가능성 또는 한계" }
         },
-        required: ["title", "coreIdea", "realisticPrototype", "reason", "risk"]
+        required: ["title", "coreIdea", "realisticPrototype", "reason", "risk"],
+        additionalProperties: false
       },
       description: "발명 아이디어 후보 3~5개"
     },
@@ -42,7 +43,8 @@ const painpointResponseSchema = {
         products: { type: "array", items: { type: "string" } },
         general: { type: "array", items: { type: "string" } }
       },
-      required: ["patent", "contestWinners", "products", "general"]
+      required: ["patent", "contestWinners", "products", "general"],
+      additionalProperties: false
     }
   },
   required: [
@@ -54,7 +56,8 @@ const painpointResponseSchema = {
     "suggestedIdeas",
     "recommendedIdeaTitle",
     "searchKeywords"
-  ]
+  ],
+  additionalProperties: false
 };
 
 const systemInstruction = `

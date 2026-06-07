@@ -49,7 +49,8 @@ const ideaSchema = {
           summary: { type: "string", description: "발명의 근거가 되는 실생활 문제 요약" },
           searchHint: { type: "string", description: "구체적 증명을 위해 검색할 키워드" }
         },
-        required: ["type", "summary", "searchHint"]
+        required: ["type", "summary", "searchHint"],
+        additionalProperties: false
       }
     },
     searchKeywords: {
@@ -61,7 +62,8 @@ const ideaSchema = {
         general: { type: "array", items: { type: "string" }, description: "구글/포털 일반 검색어" },
         expanded: { type: "array", items: { type: "string" }, description: "관련 기술 확장 검색어" }
       },
-      required: ["patent", "contestWinners", "products", "general", "expanded"]
+      required: ["patent", "contestWinners", "products", "general", "expanded"],
+      additionalProperties: false
     }
   },
   required: [
@@ -70,7 +72,8 @@ const ideaSchema = {
     "prototypePlan", "operatingPrinciple", "expectedMaterials", "expectedDifficulty",
     "expectedCostLevel", "patentPotential", "contestSuitability", "noveltyNote",
     "similarRiskNote", "sourceBasis", "searchKeywords"
-  ]
+  ],
+  additionalProperties: false
 };
 
 const arrayResponseSchema = {

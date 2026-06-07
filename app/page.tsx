@@ -1,65 +1,339 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { Idea } from "@/types/idea";
+import { 
+  Sparkles, 
+  FolderHeart, 
+  AlertTriangle, 
+  BrainCircuit, 
+  TrendingUp, 
+  Plus, 
+  BarChart3, 
+  Lightbulb, 
+  Layers,
+  ArrowRight
+} from "lucide-react";
+import StatusBadge from "@/components/StatusBadge";
+
+export default function Dashboard() {
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 통계 상태값들
+  const [stats, setStats] = useState({
+    total: 0,
+    today: 0,
+    saved: 0,
+    failed: 0,
+    excellent: 0,
+    developing: 0,
+    avgScore: 0,
+  });
+
+  const [categoryDistribution, setCategoryDistribution] = useState<{ name: string; count: number; percent: number }[]>([]);
+  const [topIdeas, setTopIdeas] = useState<Idea[]>([]);
+  const [recentIdeas, setRecentIdeas] = useState<Idea[]>([]);
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      try {
+        const ideasRef = collection(db, "ideas");
+        const snap = await getDocs(ideasRef);
+        
+        const loadedIdeas: Idea[] = [];
+        snap.forEach((doc) => {
+          const data = doc.data();
+          loadedIdeas.push({
+            id: doc.id,
+            ...data,
+            // Firestore Timestamp 대응
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+            updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
+          } as Idea);
+        });
+
+        setIdeas(loadedIdeas);
+
+        // 통계 연산
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        let todayCount = 0;
+        let savedCount = 0;
+        let failedCount = 0;
+        let excellentCount = 0;
+        let developingCount = 0;
+        let totalRatedScore = 0;
+        let ratedCount = 0;
+        const catCounts: Record<string, number> = {};
+
+        loadedIdeas.forEach((idea) => {
+          // 카테고리 집계
+          catCounts[idea.category] = (catCounts[idea.category] || 0) + 1;
+
+          // 오늘 생성 집계
+          if (new Date(idea.createdAt) >= startOfToday) {
+            todayCount++;
+          }
+
+          // 상태 집계
+          if (idea.status === "saved") savedCount++;
+          else if (idea.status === "failed") failedCount++;
+          else if (idea.status === "excellent") excellentCount++;
+          else if (idea.status === "developing") developingCount++;
+
+          // 평점 집계
+          if (idea.averageScore > 0) {
+            totalRatedScore += idea.averageScore;
+            ratedCount++;
+          }
+        });
+
+        setStats({
+          total: loadedIdeas.length,
+          today: todayCount,
+          saved: savedCount,
+          failed: failedCount,
+          excellent: excellentCount,
+          developing: developingCount,
+          avgScore: ratedCount > 0 ? Math.round((totalRatedScore / ratedCount) * 100) / 100 : 0,
+        });
+
+        // 카테고리 분포 가공
+        const dist = Object.entries(catCounts).map(([name, count]) => ({
+          name,
+          count,
+          percent: loadedIdeas.length > 0 ? Math.round((count / loadedIdeas.length) * 100) : 0,
+        })).sort((a, b) => b.count - a.count);
+        setCategoryDistribution(dist);
+
+        // TOP 5 (평점 높은 순)
+        const sortedByScore = [...loadedIdeas]
+          .filter(i => i.averageScore > 0)
+          .sort((a, b) => b.averageScore - a.averageScore)
+          .slice(0, 5);
+        setTopIdeas(sortedByScore);
+
+        // 최근 저장된 아이디어 5개
+        const sortedByDate = [...loadedIdeas]
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, 5);
+        setRecentIdeas(sortedByDate);
+
+      } catch (err) {
+        console.error("Dashboard data fetch failed:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDashboardData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-slate-400 font-medium">연구소 대시보드를 불러오는 중...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const statCards = [
+    { name: "오늘 생성된 아이디어", value: stats.today, icon: Sparkles, color: "text-amber-400 bg-amber-500/10 border-amber-500/10" },
+    { name: "저장된 아이디어 수", value: stats.saved, icon: FolderHeart, color: "text-sky-400 bg-sky-500/10 border-sky-500/10" },
+    { name: "실패 목록 아이디어", value: stats.failed, icon: AlertTriangle, color: "text-rose-400 bg-rose-500/10 border-rose-500/10" },
+    { name: "우수 후보 아이디어", value: stats.excellent, icon: TrendingUp, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/10" },
+    { name: "개발 심화 중", value: stats.developing, icon: BrainCircuit, color: "text-violet-400 bg-violet-500/10 border-violet-500/10" },
+  ];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="space-y-8 max-w-7xl mx-auto">
+      {/* Top Banner */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-card-border">
+        <div>
+          <h2 id="dashboard-title" className="text-2xl md:text-3xl font-black text-white tracking-tight">연구소 통계 대시보드</h2>
+          <p className="text-slate-400 text-sm mt-1">발명씨앗 Lab의 전체 현황 및 평점 분석 대시보드입니다.</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="flex gap-2">
+          <Link
+            id="btn-create-idea"
+            href="/generate"
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-600/10 transition-all cursor-pointer"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <Plus className="w-4 h-4" />
+            아이디어 생성실 가기
+          </Link>
         </div>
-      </main>
+      </div>
+
+      {/* Grid Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {statCards.map((c, idx) => {
+          const Icon = c.icon;
+          return (
+            <div key={idx} className="glass-panel p-5 rounded-2xl flex flex-col justify-between gap-4 border border-card-border">
+              <div className="flex justify-between items-start">
+                <span className="text-xs text-slate-400 font-medium leading-tight">{c.name}</span>
+                <div className={`p-2 rounded-lg ${c.color} border`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <span className="text-3xl font-black text-white font-mono">{c.value}</span>
+                <span className="text-xs text-slate-500 font-mono ml-1">개</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Main Charts & Lists Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Recent & Top Score */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Recent List */}
+          <div className="glass-panel p-6 rounded-2xl border border-card-border space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-indigo-400" />
+                최근 분석/생성된 아이디어
+              </h3>
+              <Link href="/ideas" className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                전체보기 <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+            
+            <div className="space-y-3">
+              {recentIdeas.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  생성된 아이디어가 존재하지 않습니다. 먼저 아이디어를 생성해 보세요.
+                </div>
+              ) : (
+                recentIdeas.map((idea) => (
+                  <Link
+                    key={idea.id}
+                    href={`/develop/${idea.id}`}
+                    className="flex justify-between items-center p-4 rounded-xl bg-slate-900/30 border border-slate-800/40 hover:border-slate-700/60 hover:bg-slate-900/50 transition-all group"
+                  >
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold text-slate-200 group-hover:text-sky-400 transition-colors">
+                        {idea.title}
+                      </h4>
+                      <span className="text-xs text-slate-500">
+                        {idea.category} • {idea.targetSchoolLevel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <StatusBadge status={idea.status} />
+                      {idea.averageScore > 0 ? (
+                        <span className="text-sm font-mono font-bold text-amber-400 flex items-center gap-0.5">
+                          ★ {idea.averageScore}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-mono text-slate-600">미평가</span>
+                      )}
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Top Rated TOP 5 */}
+          <div className="glass-panel p-6 rounded-2xl border border-card-border space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
+              최우수 평점 아이디어 (TOP 5)
+            </h3>
+            
+            <div className="space-y-3">
+              {topIdeas.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  아직 평가된 우수 아이디어가 없습니다.
+                </div>
+              ) : (
+                topIdeas.map((idea, index) => (
+                  <Link
+                    key={idea.id}
+                    href={`/develop/${idea.id}`}
+                    className="flex justify-between items-center p-4 rounded-xl bg-slate-900/30 border border-slate-800/40 hover:border-slate-700/60 hover:bg-slate-900/50 transition-all group"
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-lg font-black text-slate-600 font-mono w-4">{index + 1}</span>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-semibold text-slate-200 group-hover:text-sky-400 transition-colors">
+                          {idea.title}
+                        </h4>
+                        <span className="text-xs text-slate-500">{idea.category}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-mono font-bold text-amber-400">★ {idea.averageScore}</span>
+                      <StatusBadge status={idea.status} />
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Stats Overview & Category Distribution */}
+        <div className="space-y-6">
+          {/* Average Indicator */}
+          <div className="glass-panel p-6 rounded-2xl border border-card-border flex flex-col items-center justify-center text-center gap-3 bg-gradient-to-b from-indigo-950/20 to-slate-950/40">
+            <BarChart3 className="w-10 h-10 text-indigo-400" />
+            <div>
+              <span className="text-xs text-slate-400 font-medium block">연구소 7일 전체 평균 점수</span>
+              <span className="text-5xl font-black text-white font-mono tracking-tight mt-1">
+                {stats.avgScore}
+              </span>
+              <span className="text-sm text-slate-500 font-mono"> / 5.0</span>
+            </div>
+            <p className="text-xs text-slate-500 max-w-[200px]">
+              보통 이상(3.5 이상)을 받은 아이디어의 비중이 높을수록 연구소 건강도가 올라갑니다.
+            </p>
+          </div>
+
+          {/* Category Distribution Chart */}
+          <div className="glass-panel p-6 rounded-2xl border border-card-border space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-sky-400" />
+              영역별 분포 현황
+            </h3>
+            
+            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
+              {categoryDistribution.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  등록된 데이터가 없습니다.
+                </div>
+              ) : (
+                categoryDistribution.map((cat, idx) => (
+                  <div key={idx} className="space-y-1.5">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span className="text-slate-300">{cat.name}</span>
+                      <span className="text-slate-400 font-mono">{cat.count}개 ({cat.percent}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 to-sky-500 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${cat.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

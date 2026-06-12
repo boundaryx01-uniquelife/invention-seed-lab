@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, 
   Sparkles, 
+  Newspaper,
   PlusCircle, 
   FolderHeart, 
   AlertTriangle, 
@@ -24,6 +25,7 @@ export default function Sidebar() {
   const menuItems = [
     { name: "대시보드", path: "/", icon: LayoutDashboard },
     { name: "오늘의 아이디어", path: "/today", icon: Sparkles },
+    { name: "불편한 세상", path: "/news", icon: Newspaper },
     { name: "아이디어 생성", path: "/generate", icon: PlusCircle },
     { name: "아이디어 저장소", path: "/ideas", icon: FolderHeart },
     { name: "실패 목록", path: "/failures", icon: AlertTriangle },

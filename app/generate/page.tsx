@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { collection, doc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
@@ -44,8 +44,10 @@ const CRITERIA = [
   { value: "무작위 혼합", label: "무작위 창의성 조합" },
 ];
 
-export default function GenerateIdeas() {
+function GenerateIdeasForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  
   const [category, setCategory] = useState("생활안전");
   const [schoolLevel, setSchoolLevel] = useState("초등 고학년");
   const [count, setCount] = useState(3);
@@ -56,6 +58,20 @@ export default function GenerateIdeas() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // 불편한 세상 뉴스 탭 연동 바인딩
+  useEffect(() => {
+    const promptParam = searchParams.get("prompt");
+    const categoryParam = searchParams.get("category");
+
+    if (promptParam) {
+      setCustomPrompt(promptParam);
+      setShowAdvanced(true); // 연동 시 상세 설정 창 자동 개방
+    }
+    if (categoryParam && CATEGORIES.includes(categoryParam)) {
+      setCategory(categoryParam);
+    }
+  }, [searchParams]);
   
   // AI 생성 결과 리스트
   const [previewIdeas, setPreviewIdeas] = useState<any[]>([]);
@@ -381,5 +397,17 @@ export default function GenerateIdeas() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function GenerateIdeas() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-[80vh] items-center justify-center">
+        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <GenerateIdeasForm />
+    </Suspense>
   );
 }

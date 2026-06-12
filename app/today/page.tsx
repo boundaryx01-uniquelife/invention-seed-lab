@@ -43,6 +43,51 @@ export default function TodayIdeas() {
         } as Idea);
       });
 
+      // 오늘 생성된 아이디어가 없으면, Fallback 고정 씨앗 로드
+      if (loaded.length === 0) {
+        const { FALLBACK_SEEDS } = await import("@/constants/fallbackSeeds");
+        const todayIndex = new Date().getDate() % FALLBACK_SEEDS.length;
+        const seedData = FALLBACK_SEEDS[todayIndex];
+
+        // 가상 임시 카드를 즉시 삽입 (대기 차단)
+        const tempId = "fallback-temp";
+        const tempIdea: Idea = {
+          ...seedData,
+          id: tempId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          status: "draft",
+          averageScore: 0,
+        } as Idea;
+
+        setIdeas([tempIdea]);
+        setLoading(false);
+
+        // 조용하게 백그라운드로 Firestore에 해당 씨앗 자동 등록
+        try {
+          const { addDoc } = await import("firebase/firestore");
+          const docRef = await addDoc(ideasRef, {
+            ...seedData,
+            status: "draft",
+            averageScore: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            createdBy: "system-fallback",
+          });
+
+          // 진짜 ID로 실시간 교체
+          setIdeas([
+            {
+              ...tempIdea,
+              id: docRef.id,
+            },
+          ]);
+        } catch (dbErr) {
+          console.error("Failed to silently upload fallback seed to Firestore:", dbErr);
+        }
+        return;
+      }
+
       setIdeas(loaded);
     } catch (err) {
       console.error("Failed to load today's ideas:", err);

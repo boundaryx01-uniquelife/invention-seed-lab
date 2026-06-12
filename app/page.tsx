@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit, getCountFromServer } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
 import { 
@@ -20,7 +20,6 @@ import {
 import StatusBadge from "@/components/StatusBadge";
 
 export default function Dashboard() {
-  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
 
   // 통계 상태값들
@@ -38,94 +37,142 @@ export default function Dashboard() {
   const [topIdeas, setTopIdeas] = useState<Idea[]>([]);
   const [recentIdeas, setRecentIdeas] = useState<Idea[]>([]);
 
+  // 1. 컴포넌트 마운트 시 로컬 캐시 즉시 복구 (SWR 패턴)
+  useEffect(() => {
+    const cached = localStorage.getItem("dashboard_cache_v2");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const restoreDates = (item: any) => ({
+          ...item,
+          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
+          updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
+        });
+
+        if (parsed.stats) setStats(parsed.stats);
+        if (parsed.categoryDistribution) setCategoryDistribution(parsed.categoryDistribution);
+        if (parsed.topIdeas) setTopIdeas(parsed.topIdeas.map(restoreDates));
+        if (parsed.recentIdeas) setRecentIdeas(parsed.recentIdeas.map(restoreDates));
+        setLoading(false); // 캐시 로드 성공 시 즉시 렌더링
+      } catch (e) {
+        console.error("Dashboard cache restore failed:", e);
+      }
+    }
+  }, []);
+
+  // 2. 백그라운드 데이터 갱신 및 Firestore 최적화 쿼리
   useEffect(() => {
     async function fetchDashboardData() {
       try {
         const ideasRef = collection(db, "ideas");
-        const snap = await getDocs(ideasRef);
-        
-        const loadedIdeas: Idea[] = [];
-        snap.forEach((doc) => {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        // [최적화 1] 서버사이드 개수 집계 (getCountFromServer로 비용 및 지연 대폭 감소)
+        const [
+          totalSnap,
+          todaySnap,
+          savedSnap,
+          failedSnap,
+          excellentSnap,
+          developingSnap
+        ] = await Promise.all([
+          getCountFromServer(ideasRef),
+          getCountFromServer(query(ideasRef, where("createdAt", ">=", startOfToday))),
+          getCountFromServer(query(ideasRef, where("status", "==", "saved"))),
+          getCountFromServer(query(ideasRef, where("status", "==", "failed"))),
+          getCountFromServer(query(ideasRef, where("status", "==", "excellent"))),
+          getCountFromServer(query(ideasRef, where("status", "==", "developing")))
+        ]);
+
+        const totalCount = totalSnap.data().count;
+        const todayCount = todaySnap.data().count;
+        const savedCount = savedSnap.data().count;
+        const failedCount = failedSnap.data().count;
+        const excellentCount = excellentSnap.data().count;
+        const developingCount = developingSnap.data().count;
+
+        // [최적화 2] 최근 5개 아이디어 전용 쿼리
+        const recentQuery = query(ideasRef, orderBy("createdAt", "desc"), limit(5));
+        const recentSnap = await getDocs(recentQuery);
+        const loadedRecent: Idea[] = [];
+        recentSnap.forEach((doc) => {
           const data = doc.data();
-          loadedIdeas.push({
+          loadedRecent.push({
             id: doc.id,
             ...data,
-            // Firestore Timestamp 대응
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
             updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
           } as Idea);
         });
 
-        setIdeas(loadedIdeas);
+        // [최적화 3] 통계 분석 및 TOP 5를 위한 스캔 제한 (최근 300개 캡핑)
+        const statsQuery = query(ideasRef, orderBy("createdAt", "desc"), limit(300));
+        const statsSnap = await getDocs(statsQuery);
+        const statsIdeas: Idea[] = [];
+        statsSnap.forEach((doc) => {
+          const data = doc.data();
+          statsIdeas.push({
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+            updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
+          } as Idea);
+        });
 
-        // 통계 연산
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-        let todayCount = 0;
-        let savedCount = 0;
-        let failedCount = 0;
-        let excellentCount = 0;
-        let developingCount = 0;
+        // 300개 데이터를 활용한 평균 평점 및 영역별 분포 가공
         let totalRatedScore = 0;
         let ratedCount = 0;
         const catCounts: Record<string, number> = {};
 
-        loadedIdeas.forEach((idea) => {
-          // 카테고리 집계
+        statsIdeas.forEach((idea) => {
           catCounts[idea.category] = (catCounts[idea.category] || 0) + 1;
-
-          // 오늘 생성 집계
-          if (new Date(idea.createdAt) >= startOfToday) {
-            todayCount++;
-          }
-
-          // 상태 집계
-          if (idea.status === "saved") savedCount++;
-          else if (idea.status === "failed") failedCount++;
-          else if (idea.status === "excellent") excellentCount++;
-          else if (idea.status === "developing") developingCount++;
-
-          // 평점 집계
           if (idea.averageScore > 0) {
             totalRatedScore += idea.averageScore;
             ratedCount++;
           }
         });
 
-        setStats({
-          total: loadedIdeas.length,
+        const avgScore = ratedCount > 0 ? Math.round((totalRatedScore / ratedCount) * 100) / 100 : 0;
+
+        const dist = Object.entries(catCounts).map(([name, count]) => ({
+          name,
+          count,
+          percent: statsIdeas.length > 0 ? Math.round((count / statsIdeas.length) * 100) : 0,
+        })).sort((a, b) => b.count - a.count);
+
+        // TOP 5 (인메모리 정렬로 복합 인덱스 요구 차단)
+        const sortedByScore = [...statsIdeas]
+          .filter(i => i.averageScore > 0)
+          .sort((a, b) => b.averageScore - a.averageScore)
+          .slice(0, 5);
+
+        // 갱신된 데이터를 상태에 적용
+        const nextStats = {
+          total: totalCount,
           today: todayCount,
           saved: savedCount,
           failed: failedCount,
           excellent: excellentCount,
           developing: developingCount,
-          avgScore: ratedCount > 0 ? Math.round((totalRatedScore / ratedCount) * 100) / 100 : 0,
-        });
+          avgScore,
+        };
 
-        // 카테고리 분포 가공
-        const dist = Object.entries(catCounts).map(([name, count]) => ({
-          name,
-          count,
-          percent: loadedIdeas.length > 0 ? Math.round((count / loadedIdeas.length) * 100) : 0,
-        })).sort((a, b) => b.count - a.count);
+        setStats(nextStats);
         setCategoryDistribution(dist);
-
-        // TOP 5 (평점 높은 순)
-        const sortedByScore = [...loadedIdeas]
-          .filter(i => i.averageScore > 0)
-          .sort((a, b) => b.averageScore - a.averageScore)
-          .slice(0, 5);
         setTopIdeas(sortedByScore);
+        setRecentIdeas(loadedRecent);
 
-        // 최근 저장된 아이디어 5개
-        const sortedByDate = [...loadedIdeas]
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-          .slice(0, 5);
-        setRecentIdeas(sortedByDate);
+        // [최적화 4] 로컬 캐시 스토리지 최신화
+        localStorage.setItem("dashboard_cache_v2", JSON.stringify({
+          stats: nextStats,
+          categoryDistribution: dist,
+          topIdeas: sortedByScore,
+          recentIdeas: loadedRecent,
+        }));
 
       } catch (err) {
-        console.error("Dashboard data fetch failed:", err);
+        console.error("Dashboard background fetch failed:", err);
       } finally {
         setLoading(false);
       }

@@ -82,6 +82,22 @@ const arrayResponseSchema = {
   description: "생성된 발명 아이디어 카드들의 배열"
 };
 
+// 동적 생성할 뉴스 기사의 JSON 스키마
+const newsSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string", description: "실제 뉴스 헤드라인 느낌의 제목 (예: 보행자 위협하는 무음 킥보드 급증)" },
+    source: { type: "string", description: "모의 언론사명 및 날짜 (예: 안전일보 / 2026-06-15)" },
+    url: { type: "string", description: "구글 뉴스 검색 쿼리 URL (예: https://www.google.com/search?q=킥보드+안전)" },
+    problem: { type: "string", description: "뉴스 기사 요약 및 구체적인 사회적 고충/불편함 기술" },
+    category: { type: "string", description: "카테고리 (생활안전, 학교생활, 환경·에너지, 고령자·장애 보조, 반려동물, 재난·기후, 디지털·AI, 의료·건강, 교통·이동, 가정생활, 운동·놀이, 학습도구 중 1개)" },
+    aiInspiration: { type: "string", description: "AI가 제안하는 구체적 발명 해결책 아이디어 영감 및 힌트" },
+    suggestedPrompt: { type: "string", description: "생성실로 넘겨줄 기획 프롬프트 기본값" }
+  },
+  required: ["title", "source", "url", "problem", "category", "aiInspiration", "suggestedPrompt"],
+  additionalProperties: false
+};
+
 const systemInstruction = `
 너는 초·중·고 학생 발명대회 아이디어 발굴 보조 AI이다.
 목표는 학생이 실제로 이해하고 설명할 수 있으며, 발명대회에 출품할 수 있고, 학생 특허 등록 가능성까지 검토할 수 있는 발명 아이디어 초안을 생성하는 것이다.
@@ -142,18 +158,41 @@ export async function POST(request: Request) {
 
     const config = snap.exists() ? { ...defaultSettings, ...snap.data() } : defaultSettings;
 
-    // 3. AI 기반 자동 생성
+    // 3. 1단계: 오늘의 불편 뉴스 기사 자동 생성 (AI 호출)
+    const newsPrompt = `
+    학생 발명 아이디어의 훌륭한 재료가 될 만한 '실제 기사 스타일의 사회적 불편 이슈' 1개를 생성해 주세요.
+    영역(카테고리)은 반드시 '${config.defaultCategory || "생활안전"}'과 연관이 있거나 CATEGORIES 범위 내에 있어야 합니다.
+    기사 헤드라인 제목, 모의 언론사 정보, 구체적인 사회적 고충 상황을 실감나게 채워 주십시오.
+    반드시 제공된 JSON Schema를 만족하는 단일 JSON 객체 형태로만 리턴해 주십시오. 다른 설명은 포함하지 마십시오.
+    `;
+
+    const { responseText: newsResponseText } = await generateWithFallback({
+      prompt: newsPrompt,
+      task: "generate",
+      systemInstruction: "너는 최신 사회 문제와 안전사고, 생활 불편함을 발굴하는 뉴스 에디터 AI이다. 제공된 스키마 규격의 JSON 객체로만 응답해라.",
+      responseSchema: newsSchema
+    });
+
+    const parsedNews = cleanAndParseJson<any>(newsResponseText);
+
+    // 4. 2단계: 뉴스 기사와 유기적으로 연계된 아이디어 자동 생성
     const generateCount = Math.min(Math.max(Number(config.dailyIdeaCount) || 3, 1), 10);
     const userPrompt = `
-다음 요구사항에 맞춰 새로운 학생 발명 아이디어 ${generateCount}개를 생성해 주세요.
+    다음 요구사항에 맞춰 새로운 학생 발명 아이디어 ${generateCount}개를 생성해 주세요.
 
-[요구사항]
-- 영역(카테고리): ${config.defaultCategory || "생활안전"}
-- 대상 학교급: ${config.defaultSchoolLevel || "초등 고학년"}
-- 아이디어 생성 기준: 무작위 혼합
+    [중요 조건]
+    - 생성할 아이디어 중 최소 1개는 반드시 다음 '오늘의 뉴스' 고충점을 해결하는 최적의 아이디어로 제시해 주십시오:
+      뉴스 제목: "${parsedNews.title}"
+      사회적 문제점: "${parsedNews.problem}"
+      * 이 연계 아이디어의 "sourceBasis" 배열 항목에는 기사 제목과 문제점이 정확하게 매핑되도록 기재해주시고, 카테고리는 "${parsedNews.category}"로 설정하십시오.
 
-반드시 제공된 JSON Schema 형태를 만족하는 JSON 배열로만 정밀하게 리턴해 주십시오. 다른 설명 텍스트나 사족은 절대 포함하지 마십시오.
-`;
+    - 나머지 아이디어들은 자유롭게 아래 영역과 대상에 맞춰 생성해 주십시오:
+      영역(카테고리): ${config.defaultCategory || "생활안전"}
+      대상 학교급: ${config.defaultSchoolLevel || "초등 고학년"}
+      아이디어 생성 기준: 무작위 혼합
+
+    반드시 제공된 JSON Schema(arrayResponseSchema) 형태를 만족하는 JSON 배열로만 정밀하게 리턴해 주십시오. 다른 설명 텍스트나 사족은 절대 포함하지 마십시오.
+    `;
 
     const { provider, responseText } = await generateWithFallback({
       prompt: userPrompt,
@@ -164,11 +203,21 @@ export async function POST(request: Request) {
 
     const parsedIdeas = cleanAndParseJson<any[]>(responseText);
 
-    // 4. Firestore Batch Write (ideas 컬렉션에 draft 상태로 일괄 저장)
+    // 5. Firestore Batch Write (news 및 ideas 컬렉션 동시 추가)
     const batch = writeBatch(db);
+    const newsRef = collection(db, "news");
     const ideasRef = collection(db, "ideas");
-    const savedIdeas: Idea[] = [];
+    
+    // 신규 뉴스 문서 배칭
+    const newNewsDocRef = doc(newsRef);
+    const finalNewsData = {
+      ...parsedNews,
+      id: newNewsDocRef.id,
+      createdAt: new Date(),
+    };
+    batch.set(newNewsDocRef, finalNewsData);
 
+    const savedIdeas: Idea[] = [];
     parsedIdeas.forEach((item) => {
       const newDocRef = doc(ideasRef);
       const newIdea: Idea = {
@@ -186,7 +235,7 @@ export async function POST(request: Request) {
 
     await batch.commit();
 
-    // 5. 텔레그램 연동 알림 푸시
+    // 6. 텔레그램 연동 알림 푸시
     if (config.telegramBotToken && config.telegramChatId) {
       const dateString = new Date().toLocaleDateString("ko-KR", {
         year: "numeric",
@@ -199,6 +248,7 @@ export async function POST(request: Request) {
       let messageText = `🔔 <b>[발명씨앗 Lab] 오늘의 자동 발명 아이디어가 생성되었습니다!</b>\n`;
       messageText += `━━━━━━━━━━━━━━━━━━━━\n`;
       messageText += `📅 <b>생성 일시:</b> ${dateString}\n`;
+      messageText += `📰 <b>오늘의 뉴스:</b> ${parsedNews.title}\n`;
       messageText += `📂 <b>기본 영역:</b> ${config.defaultCategory}\n`;
       messageText += `🎓 <b>대상 학교급:</b> ${config.defaultSchoolLevel}\n`;
       messageText += `🤖 <b>사용 모델:</b> ${provider}\n`;
@@ -218,6 +268,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       provider,
+      newsTitle: parsedNews.title,
       count: savedIdeas.length,
       ideas: savedIdeas.map((idea) => ({ id: idea.id, title: idea.title }))
     });

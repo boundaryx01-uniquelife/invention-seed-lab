@@ -24,7 +24,7 @@ export default function Sidebar() {
     { name: "아이디어 생성", path: "/generate", icon: PlusCircle },
     { name: "아이디어 저장소", path: "/ideas", icon: FolderHeart },
     { name: "실패 목록", path: "/failures", icon: AlertTriangle },
-    { name: "불편함 입력", path: "/painpoints", icon: MessageSquare },
+    { name: "불편함 입력실", path: "/painpoints", icon: MessageSquare },
     { name: "설정", path: "/settings", icon: Settings },
   ];
 
@@ -37,7 +37,7 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              발명 씨앗 Lab
+              발명씨앗 Lab
             </h1>
             <span className="text-xs text-slate-400 font-mono">Invention Seed Lab</span>
           </div>
@@ -71,8 +71,6 @@ export default function Sidebar() {
           })}
         </nav>
       </div>
-
-      <div className="p-4 border-t border-card-border bg-slate-900/10" />
     </aside>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
 import IdeaCard from "@/components/IdeaCard";
@@ -19,17 +19,36 @@ export default function IdeaRepository() {
   const [statusFilter, setStatusFilter] = useState("all"); // all, draft, saved, excellent, developing
   const [sortBy, setSortBy] = useState("newest"); // newest, rating, feasibility, patent, contest
 
-  const fetchIdeas = async () => {
-    setLoading(true);
+  // 1. 컴포넌트 마운트 시 로컬 캐시 즉시 복구 (SWR 패턴)
+  useEffect(() => {
+    const cached = localStorage.getItem("ideas_repository_cache_v2");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const restoreDates = (item: any) => ({
+          ...item,
+          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
+          updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
+        });
+        setIdeas(parsed.map(restoreDates));
+        setLoading(false); // 캐시 로드 성공 시 로딩 스피너 제거
+      } catch (e) {
+        console.error("Failed to parse ideas repository cache:", e);
+      }
+    }
+  }, []);
+
+  const fetchIdeas = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
       const ideasRef = collection(db, "ideas");
-      const q = query(ideasRef, orderBy("createdAt", "desc"));
+      // [최적화] 최근 300개 아이디어로 스캔량 제한 (풀스캔 제거)
+      const q = query(ideasRef, orderBy("createdAt", "desc"), limit(300));
       const snap = await getDocs(q);
       
       const loaded: Idea[] = [];
       snap.forEach((doc) => {
         const data = doc.data();
-        // 실패 목록 전용 보관이 아닌 실용 아이디어들 위주로 로드 (failed는 기본적으로 제외하되 필터 선택 가능)
         loaded.push({
           id: doc.id,
           ...data,
@@ -39,6 +58,8 @@ export default function IdeaRepository() {
       });
 
       setIdeas(loaded);
+      // [최적화] 로컬 캐시 갱신
+      localStorage.setItem("ideas_repository_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to fetch repository ideas:", err);
     } finally {
@@ -47,7 +68,7 @@ export default function IdeaRepository() {
   };
 
   useEffect(() => {
-    fetchIdeas();
+    fetchIdeas(true); // 백그라운드에서 조용히 갱신
   }, []);
 
   const handleRated = (updatedIdea: Idea) => {

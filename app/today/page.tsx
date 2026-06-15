@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
 import IdeaCard from "@/components/IdeaCard";
@@ -17,18 +17,39 @@ export default function TodayIdeas() {
   const [category, setCategory] = useState("전체");
   const [schoolLevel, setSchoolLevel] = useState("전체");
 
-  const fetchTodayIdeas = async () => {
-    setLoading(true);
+  // 1. 컴포넌트 마운트 시 로컬 캐시 즉시 복구 (SWR 패턴)
+  useEffect(() => {
+    const cached = localStorage.getItem("today_ideas_cache_v2");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const restoreDates = (item: any) => ({
+          ...item,
+          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
+          updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
+        });
+        setIdeas(parsed.map(restoreDates));
+        setLoading(false); // 캐시 로드 성공 시 즉시 렌더링
+      } catch (e) {
+        console.error("Failed to parse today's ideas cache:", e);
+      }
+    }
+  }, []);
+
+  const fetchTodayIdeas = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
       // 오늘 날짜 이후의 모든 아이디어 조회 (KST 기준)
       const ideasRef = collection(db, "ideas");
+      // [최적화] 오늘 아이디어가 수십 개를 넘지 않을 것이므로 limit(50) 캡핑 추가
       const q = query(
         ideasRef,
         where("createdAt", ">=", startOfToday),
-        orderBy("createdAt", "desc")
+        orderBy("createdAt", "desc"),
+        limit(50)
       );
 
       const snap = await getDocs(q);
@@ -75,13 +96,15 @@ export default function TodayIdeas() {
             createdBy: "system-fallback",
           });
 
-          // 진짜 ID로 실시간 교체
-          setIdeas([
+          // 진짜 ID로 실시간 교체 및 캐싱
+          const nextIdeas = [
             {
               ...tempIdea,
               id: docRef.id,
             },
-          ]);
+          ];
+          setIdeas(nextIdeas);
+          localStorage.setItem("today_ideas_cache_v2", JSON.stringify(nextIdeas));
         } catch (dbErr) {
           console.error("Failed to silently upload fallback seed to Firestore:", dbErr);
         }
@@ -89,6 +112,8 @@ export default function TodayIdeas() {
       }
 
       setIdeas(loaded);
+      // [최적화] 로컬 캐시 갱신
+      localStorage.setItem("today_ideas_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to load today's ideas:", err);
     } finally {
@@ -97,7 +122,7 @@ export default function TodayIdeas() {
   };
 
   useEffect(() => {
-    fetchTodayIdeas();
+    fetchTodayIdeas(true); // 백그라운드에서 조용히 갱신
   }, []);
 
   // 평점 완료 시 카드 상태 실시간 동기화

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Failure } from "@/types/idea";
 import { AlertTriangle, Search, RefreshCw, Layers, Sparkles, BookOpen } from "lucide-react";
@@ -13,11 +13,30 @@ export default function FailureRepository() {
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
 
-  const fetchFailures = async () => {
-    setLoading(true);
+  // 1. 컴포넌트 마운트 시 로컬 캐시 즉시 복구 (SWR 패턴)
+  useEffect(() => {
+    const cached = localStorage.getItem("failures_repository_cache_v2");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const restoreDates = (item: any) => ({
+          ...item,
+          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
+        });
+        setFailures(parsed.map(restoreDates));
+        setLoading(false); // 캐시 로드 성공 시 즉시 렌더링
+      } catch (e) {
+        console.error("Failed to parse failures repository cache:", e);
+      }
+    }
+  }, []);
+
+  const fetchFailures = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
       const failuresRef = collection(db, "failures");
-      const q = query(failuresRef, orderBy("createdAt", "desc"));
+      // [최적화] 최근 100개 실패 아이디어로 스캔량 제한
+      const q = query(failuresRef, orderBy("createdAt", "desc"), limit(100));
       const snap = await getDocs(q);
 
       const loaded: Failure[] = [];
@@ -31,6 +50,8 @@ export default function FailureRepository() {
       });
 
       setFailures(loaded);
+      // [최적화] 로컬 캐시 갱신
+      localStorage.setItem("failures_repository_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to load failures:", err);
     } finally {
@@ -39,7 +60,7 @@ export default function FailureRepository() {
   };
 
   useEffect(() => {
-    fetchFailures();
+    fetchFailures(true); // 백그라운드에서 조용히 갱신
   }, []);
 
   const categories = useMemo(() => {
@@ -74,7 +95,7 @@ export default function FailureRepository() {
           </p>
         </div>
         <button
-          onClick={fetchFailures}
+          onClick={() => fetchFailures(false)}
           className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
         >
           <RefreshCw className="w-3.5 h-3.5" />

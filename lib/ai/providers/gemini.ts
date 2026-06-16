@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { AiProvider } from "../index";
 
 export class GeminiProvider implements AiProvider {
-  name: "gemini" = "gemini";
+  name = "gemini" as const;
   modelName: string;
   private genAI: GoogleGenerativeAI | null = null;
 

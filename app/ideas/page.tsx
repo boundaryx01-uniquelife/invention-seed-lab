@@ -89,7 +89,7 @@ export default function IdeaRepository() {
   // 복합 클라이언트 필터링 및 검색, 정렬 연산
   const processedIdeas = useMemo(() => {
     // 1) 필터 및 검색 수행
-    let result = ideas.filter((idea) => {
+    const result = ideas.filter((idea) => {
       // 카테고리 필터
       const matchCat = category === "전체" || idea.category === category;
       

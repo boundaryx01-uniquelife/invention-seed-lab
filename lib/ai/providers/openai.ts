@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { AiProvider } from "../index";
 
 export class OpenAIProvider implements AiProvider {
-  name: "openai" = "openai";
+  name = "openai" as const;
   modelName: string;
   private openai: OpenAI | null = null;
 

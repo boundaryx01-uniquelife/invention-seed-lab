@@ -1,120 +1,71 @@
 import { NextResponse } from "next/server";
 import { generateWithFallback, cleanAndParseJson } from "@/lib/ai";
-import { verifyAdmin } from "@/lib/auth";
 
-const painpointResponseSchema = {
+const painpointAnalysisSchema = {
   type: "object",
   properties: {
-    analyzedProblem: { type: "string", description: "문제 요약" },
-    targetUser: { type: "string", description: "사용 대상" },
-    usageSituation: { type: "string", description: "사용 상황" },
-    existingSolutions: {
-      type: "array",
-      items: { type: "string" },
-      description: "기존 해결 방법"
-    },
-    limitations: {
-      type: "array",
-      items: { type: "string" },
-      description: "기존 해결 방법의 한계"
-    },
-    suggestedIdeas: {
+    extractedProblem: { type: "string", description: "입력된 텍스트에서 포착한 핵심 불편함 정의" },
+    targetUser: { type: "string", description: "이 불편을 주로 겪는 주체" },
+    contextSituation: { type: "string", description: "불편함이 발생하는 구체적 상황" },
+    solutions: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          title: { type: "string", description: "아이디어명" },
-          coreIdea: { type: "string", description: "핵심 아이디어" },
-          realisticPrototype: { type: "string", description: "학생 제작용 시제품" },
-          reason: { type: "string", description: "추천 이유" },
-          risk: { type: "string", description: "유사 가능성 또는 한계" }
+          title: { type: "string", description: "솔루션 명칭" },
+          coreConcept: { type: "string", description: "개선 발명 개념" },
+          realisticApproach: { type: "string", description: "아두이노/3D프린터 등 학생 구현 방법" },
+          expectedCategory: { type: "string", description: "카테고리" },
+          suggestedSchoolLevel: { type: "string", description: "추천 학교급" }
         },
-        required: ["title", "coreIdea", "realisticPrototype", "reason", "risk"],
+        required: ["title", "coreConcept", "realisticApproach", "expectedCategory", "suggestedSchoolLevel"],
         additionalProperties: false
       },
-      description: "발명 아이디어 후보 3~5개"
-    },
-    recommendedIdeaTitle: { type: "string", description: "가장 추천하는 아이디어" },
-    searchKeywords: {
-      type: "object",
-      properties: {
-        patent: { type: "array", items: { type: "string" } },
-        contestWinners: { type: "array", items: { type: "string" } },
-        products: { type: "array", items: { type: "string" } },
-        general: { type: "array", items: { type: "string" } }
-      },
-      required: ["patent", "contestWinners", "products", "general"],
-      additionalProperties: false
+      description: "도출된 2~3가지 발명 솔루션 방향"
     }
   },
-  required: [
-    "analyzedProblem",
-    "targetUser",
-    "usageSituation",
-    "existingSolutions",
-    "limitations",
-    "suggestedIdeas",
-    "recommendedIdeaTitle",
-    "searchKeywords"
-  ],
+  required: ["extractedProblem", "targetUser", "contextSituation", "solutions"],
   additionalProperties: false
 };
 
-const systemInstruction = `
-너는 사용자가 입력한 생활 속 불편함을 발명 아이디어로 바꾸는 발명 코치이다.
-사용자의 불편함을 분석하여 기존 솔루션의 한계를 짚고, 이를 기발하게 보완할 수 있는 학생 수준의 시제품 제작 가능 아이디어를 도출해라.
-
-출력은 반드시 제공된 JSON Schema를 만족하는 단일 JSON 객체여야 한다. 다른 텍스트 설명은 배제해라.
-`;
-
 export async function POST(request: Request) {
-  // 1. 권한 체크
-  const isAdmin = await verifyAdmin();
-  if (!isAdmin) {
-    return NextResponse.json(
-      { success: false, error: "권한이 없습니다." },
-      { status: 401 }
-    );
-  }
-
   try {
-    const { userInput } = await request.json();
+    const { rawText } = await request.json();
 
-    if (!userInput || typeof userInput !== "string" || userInput.trim().length === 0) {
+    if (!rawText || typeof rawText !== "string" || rawText.trim().length === 0) {
       return NextResponse.json(
-        { success: false, error: "분석할 불편함 내용을 입력해주세요." },
+        { success: false, error: "분석할 불편함 내용을 입력해 주세요." },
         { status: 400 }
       );
     }
 
     const userPrompt = `
-다음 사용자의 불편 사항을 바탕으로 문제를 분석하고 아이디어 후보를 제안해 주세요.
+다음 생활 속 불편함 입력 내용을 전문적으로 해부하고, 학생 발명대회용 발명품으로 발전시킬 수 있는 2~3가지 해결 솔루션을 제시해 주세요:
 
-[사용자 입력 불편 사항]
-"${userInput}"
+[사용자 입력 내용]
+"${rawText}"
 
-요구된 JSON Schema 구조에 따라 엄격하게 결과를 리턴해 주십시오.
+반드시 지정된 JSON Schema 형태를 만족하는 단일 JSON 객체로만 응답해 주십시오. 사족은 제외하십시오.
 `;
 
-    // AI Adapter 실행
     const { provider, responseText } = await generateWithFallback({
       prompt: userPrompt,
       task: "analyze",
-      systemInstruction,
-      responseSchema: painpointResponseSchema,
+      systemInstruction: "너는 생활 속 고충을 발명품 아이디어로 해부하고 전환해주는 발명 코칭 전문가 AI이다.",
+      responseSchema: painpointAnalysisSchema
     });
 
-    const parsedData = cleanAndParseJson(responseText);
+    const parsed = cleanAndParseJson<any>(responseText);
 
     return NextResponse.json({
       success: true,
       provider,
-      analysis: parsedData,
+      analysis: parsed
     });
   } catch (error: any) {
-    console.error("불편함 분석 API 오류:", error);
+    console.error("Painpoint Analysis Error:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "불편함을 분석하는 도중 오류가 발생했습니다." },
+      { success: false, error: error.message || "불편함 분석 도중 오류가 발생했습니다." },
       { status: 500 }
     );
   }

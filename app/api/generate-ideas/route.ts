@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { generateWithFallback, cleanAndParseJson } from "@/lib/ai";
-import { verifyAdmin } from "@/lib/auth";
 
 // AI가 준수해야 할 개별 아이디어의 JSON 스키마
 const ideaSchema = {
@@ -73,7 +72,6 @@ const ideaSchema = {
   additionalProperties: false
 };
 
-// Next.js API Routes에 전달할 스키마 (배열 형태)
 const arrayResponseSchema = {
   type: "array",
   items: ideaSchema,
@@ -111,19 +109,10 @@ const systemInstruction = `
 `;
 
 export async function POST(request: Request) {
-  // 1. 권한 체크
-  const isAdmin = await verifyAdmin();
-  if (!isAdmin) {
-    return NextResponse.json(
-      { success: false, error: "권한이 없습니다." },
-      { status: 401 }
-    );
-  }
-
   try {
     const { category, schoolLevel, count, criteria, prompt } = await request.json();
 
-    const generateCount = Math.min(Math.max(Number(count) || 1, 1), 10); // 한 번에 1~10개 제한
+    const generateCount = Math.min(Math.max(Number(count) || 1, 1), 10);
 
     const userPrompt = `
 다음 요구사항에 맞춰 새로운 학생 발명 아이디어 ${generateCount}개를 생성해 주세요.
@@ -137,7 +126,6 @@ ${prompt ? `- 사용자 추가 기획 의도/참고사항: ${prompt}` : ""}
 반드시 제공된 JSON Schema 형태를 만족하는 JSON 배열로만 정밀하게 리턴해 주십시오. 다른 설명 텍스트나 사족은 절대 포함하지 마십시오.
 `;
 
-    // AI Provider Adapter 실행 (Fallback 지원)
     const { provider, responseText } = await generateWithFallback({
       prompt: userPrompt,
       task: "generate",
@@ -145,7 +133,6 @@ ${prompt ? `- 사용자 추가 기획 의도/참고사항: ${prompt}` : ""}
       responseSchema: arrayResponseSchema
     });
 
-    // 결과 파싱
     const parsedIdeas = cleanAndParseJson<any[]>(responseText);
 
     return NextResponse.json({

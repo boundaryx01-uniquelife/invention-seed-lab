@@ -7,11 +7,12 @@ import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
 import IdeaCard from "@/components/IdeaCard";
 import CategoryFilter from "@/components/CategoryFilter";
-import { Sparkles, Calendar, ArrowRight, BrainCircuit } from "lucide-react";
+import { Sparkles, Calendar, ArrowRight, BrainCircuit, RefreshCw } from "lucide-react";
 
 export default function TodayIdeas() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   
   // 필터 상태
   const [category, setCategory] = useState("전체");
@@ -29,7 +30,7 @@ export default function TodayIdeas() {
           updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
         });
         setIdeas(parsed.map(restoreDates));
-        setLoading(false); // 캐시 로드 성공 시 즉시 렌더링
+        setLoading(false);
       } catch (e) {
         console.error("Failed to parse today's ideas cache:", e);
       }
@@ -42,9 +43,7 @@ export default function TodayIdeas() {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-      // 오늘 날짜 이후의 모든 아이디어 조회 (KST 기준)
       const ideasRef = collection(db, "ideas");
-      // [최적화] 오늘 아이디어가 수십 개를 넘지 않을 것이므로 limit(50) 캡핑 추가
       const q = query(
         ideasRef,
         where("createdAt", ">=", startOfToday),
@@ -64,13 +63,11 @@ export default function TodayIdeas() {
         } as Idea);
       });
 
-      // 오늘 생성된 아이디어가 없으면, Fallback 고정 씨앗 로드
       if (loaded.length === 0) {
         const { FALLBACK_SEEDS } = await import("@/constants/fallbackSeeds");
         const todayIndex = new Date().getDate() % FALLBACK_SEEDS.length;
         const seedData = FALLBACK_SEEDS[todayIndex];
 
-        // 가상 임시 카드를 즉시 삽입 (대기 차단)
         const tempId = "fallback-temp";
         const tempIdea: Idea = {
           ...seedData,
@@ -84,7 +81,6 @@ export default function TodayIdeas() {
         setIdeas([tempIdea]);
         setLoading(false);
 
-        // 조용하게 백그라운드로 Firestore에 해당 씨앗 자동 등록
         try {
           const { addDoc } = await import("firebase/firestore");
           const docRef = await addDoc(ideasRef, {
@@ -96,7 +92,6 @@ export default function TodayIdeas() {
             createdBy: "system-fallback",
           });
 
-          // 진짜 ID로 실시간 교체 및 캐싱
           const nextIdeas = [
             {
               ...tempIdea,
@@ -112,7 +107,6 @@ export default function TodayIdeas() {
       }
 
       setIdeas(loaded);
-      // [최적화] 로컬 캐시 갱신
       localStorage.setItem("today_ideas_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to load today's ideas:", err);
@@ -122,17 +116,40 @@ export default function TodayIdeas() {
   };
 
   useEffect(() => {
-    fetchTodayIdeas(true); // 백그라운드에서 조용히 갱신
+    fetchTodayIdeas(true);
   }, []);
 
-  // 평점 완료 시 카드 상태 실시간 동기화
+  // ⚡ 수동 오늘의 아이디어 즉시 자동 생성 실행
+  const handleGenerateToday = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/generate-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: 3,
+          category: category !== "전체" ? category : "생활안전",
+          schoolLevel: schoolLevel !== "전체" ? schoolLevel : "초등 고학년",
+          topicPrompt: "오늘의 불편한 사회 현상을 해결하는 참신한 발명품 아이디어",
+        }),
+      });
+
+      if (!res.ok) throw new Error("자동 생성 실패");
+      await fetchTodayIdeas(false);
+    } catch (err) {
+      console.error("Auto generation failed:", err);
+      alert("아이디어 생성 중 오류가 발생했습니다.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const handleRated = (updatedIdea: Idea) => {
     setIdeas((prev) =>
       prev.map((item) => (item.id === updatedIdea.id ? updatedIdea : item))
     );
   };
 
-  // 클라이언트 레벨 필터링 (Firestore 복합 색인 에러 방지)
   const filteredIdeas = useMemo(() => {
     return ideas.filter((idea) => {
       const matchCat = category === "전체" || idea.category === category;
@@ -141,7 +158,6 @@ export default function TodayIdeas() {
     });
   }, [ideas, category, schoolLevel]);
 
-  // 오늘 날짜 텍스트 가공
   const todayDateString = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
@@ -164,6 +180,15 @@ export default function TodayIdeas() {
             매일 새롭게 생성되는 AI 추천 씨앗 아이디어 카드입니다. 평가를 완료해 주세요.
           </p>
         </div>
+
+        <button
+          onClick={handleGenerateToday}
+          disabled={generating}
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
+          <span>{generating ? "AI 아이디어 착상 중..." : "⚡ AI 오늘의 아이디어 즉시 생성"}</span>
+        </button>
       </div>
 
       {/* Filter Options */}
@@ -194,28 +219,18 @@ export default function TodayIdeas() {
             <p className="text-xs text-slate-500 mt-1 max-w-[280px] mx-auto leading-relaxed">
               {category !== "전체" || schoolLevel !== "전체"
                 ? "선택한 필터 조건에 부합하는 아이디어가 없습니다. 필터를 해제해 보세요."
-                : "오늘 새롭게 생성된 아이디어가 없습니다. 생성실에서 직접 아이디어를 대량 생산해 보세요!"}
+                : "상단의 [⚡ AI 오늘의 아이디어 즉시 생성] 버튼을 누르면 AI가 즉시 새로운 아이디어를 착상합니다!"}
             </p>
           </div>
           <div className="pt-2">
-            {category !== "전체" || schoolLevel !== "전체" ? (
-              <button
-                onClick={() => {
-                  setCategory("전체");
-                  setSchoolLevel("전체");
-                }}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                필터 초기화
-              </button>
-            ) : (
-              <Link
-                href="/generate"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-indigo-600 to-sky-600 text-white text-xs font-semibold rounded-xl shadow-md transition-all hover:opacity-95"
-              >
-                생성실로 이동 <ArrowRight className="w-4 h-4" />
-              </Link>
-            )}
+            <button
+              onClick={handleGenerateToday}
+              disabled={generating}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-xs font-bold rounded-xl shadow-md transition-all hover:opacity-95"
+            >
+              <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
+              아이디어 즉시 생성
+            </button>
           </div>
         </div>
       ) : (

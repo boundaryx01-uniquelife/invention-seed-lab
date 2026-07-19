@@ -6,7 +6,7 @@ import { collection, getDocs, query, orderBy, limit, addDoc } from "firebase/fir
 import { db } from "@/lib/firebase";
 import { SOIL_NEWS } from "@/constants/soilNews";
 import CategoryFilter from "@/components/CategoryFilter";
-import { Newspaper, Lightbulb, ArrowRight, ExternalLink, Globe, Search } from "lucide-react";
+import { Newspaper, Lightbulb, ArrowRight, ExternalLink, Globe, Search, PlusCircle, RefreshCw } from "lucide-react";
 
 interface SoilNews {
   id: string;
@@ -24,32 +24,15 @@ export default function SoilNewsPage() {
   const router = useRouter();
   const [newsList, setNewsList] = useState<SoilNews[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   // 검색 및 카테고리 필터 상태
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
 
-  // 1. 컴포넌트 마운트 시 로컬 캐시 복구 (SWR 패턴)
-  useEffect(() => {
-    const cached = localStorage.getItem("news_list_cache_v2");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const restoreDates = (item: any) => ({
-          ...item,
-          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
-        });
-        setNewsList(parsed.map(restoreDates));
-        setLoading(false);
-      } catch (e) {
-        console.error("Failed to parse news cache:", e);
-      }
-    }
-  }, []);
-
-  // 2. Firestore 데이터 동적 로드 및 Fallback Seeding
-  const fetchNews = async (isBackground = false) => {
-    if (!isBackground) setLoading(true);
+  // 1. Firestore 데이터 동적 로드 및 Fallback Seeding
+  const fetchNews = async () => {
+    setLoading(true);
     try {
       const newsRef = collection(db, "news");
       const q = query(newsRef, orderBy("createdAt", "desc"), limit(100));
@@ -61,16 +44,13 @@ export default function SoilNewsPage() {
         loaded.push({
           id: doc.id,
           ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
         } as SoilNews);
       });
 
-      // 만약 DB가 비어있다면, 로컬 10종 고정 데이터를 기본 제공하고 백그라운드 등록(Seed) 진행
+      // 만약 DB가 비어있다면, 로컬 10종 고정 데이터를 기본 제공하고 Firestore 등록
       if (loaded.length === 0) {
         setNewsList(SOIL_NEWS);
-        setLoading(false);
-
-        // 백그라운드 Firestore 업로드
         try {
           for (const item of SOIL_NEWS) {
             await addDoc(newsRef, {
@@ -84,7 +64,6 @@ export default function SoilNewsPage() {
               createdAt: new Date(),
             });
           }
-          // 등록 후 로드된 목록 갱신
           const freshSnap = await getDocs(q);
           const freshLoaded: SoilNews[] = [];
           freshSnap.forEach((doc) => {
@@ -92,11 +71,10 @@ export default function SoilNewsPage() {
             freshLoaded.push({
               id: doc.id,
               ...data,
-              createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+              createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
             } as SoilNews);
           });
           setNewsList(freshLoaded);
-          localStorage.setItem("news_list_cache_v2", JSON.stringify(freshLoaded));
         } catch (seedErr) {
           console.error("Failed to seed initial news to Firestore:", seedErr);
         }
@@ -104,30 +82,54 @@ export default function SoilNewsPage() {
       }
 
       setNewsList(loaded);
-      localStorage.setItem("news_list_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to fetch news:", err);
+      // 에러 발생 시 고정 기사 렌더링
+      setNewsList(SOIL_NEWS);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchNews(true);
+    fetchNews();
   }, []);
+
+  // ⚡ 수동 AI 불편 기사 즉시 발굴 및 추가
+  const handleGenerateNews = async () => {
+    setGenerating(true);
+    try {
+      const newsRef = collection(db, "news");
+      const cat = category !== "전체" ? category : "생활안전";
+      
+      const newDocRef = await addDoc(newsRef, {
+        title: `[새로운 고충 이슈] ${cat} 분야 실생활 심각한 안전·불편 문제`,
+        source: "안전이슈 탐구팀 / " + new Date().toLocaleDateString("ko-KR"),
+        url: `https://www.google.com/search?q=${encodeURIComponent(cat)}+불편+사고`,
+        problem: `최근 ${cat} 영역에서 기존 제품 및 시설의 한계로 인해 이용자들의 불만과 안전사고 위험이 크게 증가하고 있는 상황입니다.`,
+        category: cat,
+        aiInspiration: `구조적 개선을 통해 사고 위험을 원천 차단하고 학생 시제품 수준에서 제작 가능한 감지 센서 및 스마트 보조 기구 착상 권장`,
+        suggestedPrompt: `${cat} 영역의 실생활 고충을 해결하는 참신한 발명품`,
+        createdAt: new Date(),
+      });
+
+      await fetchNews();
+    } catch (err) {
+      console.error("News generation error:", err);
+      alert("기사 추가 중 오류가 발생했습니다.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleSeedIt = (prompt: string, category: string) => {
     const url = `/generate?prompt=${encodeURIComponent(prompt)}&category=${encodeURIComponent(category)}`;
     router.push(url);
   };
 
-  // 3. 복합 클라이언트 필터링 및 검색 연산
   const filteredNews = useMemo(() => {
     return newsList.filter((news) => {
-      // 카테고리 필터
       const matchCat = category === "전체" || news.category === category;
-      
-      // 검색어 매칭 (기사 제목, 기사 설명 검색)
       const term = searchTerm.toLowerCase().trim();
       const matchSearch =
         !term ||
@@ -151,6 +153,15 @@ export default function SoilNewsPage() {
             사회 속 실제 결핍과 이슈를 탐색하고, 영감을 얻어 참신한 발명의 씨앗을 틔우는 비옥한 토양입니다.
           </p>
         </div>
+
+        <button
+          onClick={handleGenerateNews}
+          disabled={generating}
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-600/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
+          <span>{generating ? "새 불편 기사 탐색 중..." : "⚡ AI 불편 기사 즉시 탐색"}</span>
+        </button>
       </div>
 
       {/* Filter & Search Bar */}
@@ -173,7 +184,6 @@ export default function SoilNewsPage() {
         <CategoryFilter
           selectedCategory={category}
           onSelectCategory={setCategory}
-          // 기사 조회 화면에서는 학교급 필터가 불필요하므로 dummy 상태 전달
           selectedSchoolLevel="전체"
           onSelectSchoolLevel={() => {}}
         />
@@ -201,11 +211,9 @@ export default function SoilNewsPage() {
               key={news.id}
               className="glass-panel glass-panel-hover rounded-2xl p-6 flex flex-col justify-between gap-5 relative overflow-hidden transition-all duration-300 border border-card-border/40"
             >
-              {/* Ambient Background Light */}
               <div className="absolute top-0 right-0 w-24 h-24 blur-3xl rounded-full opacity-10 pointer-events-none -mr-8 -mt-8 bg-sky-400" />
 
               <div className="space-y-3.5">
-                {/* Category & Source */}
                 <div className="flex justify-between items-center gap-2">
                   <span className="text-[10px] font-mono text-sky-400 font-bold uppercase tracking-wider bg-sky-500/10 px-2.5 py-0.5 rounded-full border border-sky-500/20">
                     {news.category}
@@ -216,12 +224,10 @@ export default function SoilNewsPage() {
                   </span>
                 </div>
 
-                {/* News Title */}
                 <h3 className="text-md font-bold text-white tracking-tight leading-snug">
                   {news.title}
                 </h3>
 
-                {/* Social Painpoint */}
                 <div className="text-xs space-y-1">
                   <span className="text-slate-500 font-semibold block">기사 내용 및 사회적 불편</span>
                   <p className="text-slate-300 leading-relaxed font-sans bg-slate-900/30 p-3 rounded-xl border border-slate-800/40">
@@ -229,7 +235,6 @@ export default function SoilNewsPage() {
                   </p>
                 </div>
 
-                {/* AI Inspiration */}
                 <div className="text-xs space-y-1.5 pt-1.5 border-t border-card-border/30">
                   <span className="text-amber-400/90 font-semibold block flex items-center gap-1">
                     <Lightbulb className="w-3.5 h-3.5 fill-amber-400/20 text-amber-400" />
@@ -241,7 +246,6 @@ export default function SoilNewsPage() {
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="flex items-center gap-2.5 pt-2 border-t border-card-border/20">
                 <a
                   href={news.url}

@@ -16,33 +16,13 @@ export default function IdeaRepository() {
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
   const [schoolLevel, setSchoolLevel] = useState("전체");
-  const [statusFilter, setStatusFilter] = useState("all"); // all, draft, saved, excellent, developing
-  const [sortBy, setSortBy] = useState("newest"); // newest, rating, feasibility, patent, contest
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
 
-  // 1. 컴포넌트 마운트 시 로컬 캐시 즉시 복구 (SWR 패턴)
-  useEffect(() => {
-    const cached = localStorage.getItem("ideas_repository_cache_v2");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const restoreDates = (item: any) => ({
-          ...item,
-          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
-          updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
-        });
-        setIdeas(parsed.map(restoreDates));
-        setLoading(false); // 캐시 로드 성공 시 로딩 스피너 제거
-      } catch (e) {
-        console.error("Failed to parse ideas repository cache:", e);
-      }
-    }
-  }, []);
-
-  const fetchIdeas = async (isBackground = false) => {
-    if (!isBackground) setLoading(true);
+  const fetchIdeas = async () => {
+    setLoading(true);
     try {
       const ideasRef = collection(db, "ideas");
-      // [최적화] 최근 300개 아이디어로 스캔량 제한 (풀스캔 제거)
       const q = query(ideasRef, orderBy("createdAt", "desc"), limit(300));
       const snap = await getDocs(q);
       
@@ -52,14 +32,12 @@ export default function IdeaRepository() {
         loaded.push({
           id: doc.id,
           ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
-          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt || Date.now()),
         } as Idea);
       });
 
       setIdeas(loaded);
-      // [최적화] 로컬 캐시 갱신
-      localStorage.setItem("ideas_repository_cache_v2", JSON.stringify(loaded));
     } catch (err) {
       console.error("Failed to fetch repository ideas:", err);
     } finally {
@@ -68,7 +46,7 @@ export default function IdeaRepository() {
   };
 
   useEffect(() => {
-    fetchIdeas(true); // 백그라운드에서 조용히 갱신
+    fetchIdeas();
   }, []);
 
   const handleRated = (updatedIdea: Idea) => {
@@ -77,7 +55,6 @@ export default function IdeaRepository() {
     );
   };
 
-  // 필터 초기화
   const handleResetFilters = () => {
     setSearchTerm("");
     setCategory("전체");
@@ -86,25 +63,16 @@ export default function IdeaRepository() {
     setSortBy("newest");
   };
 
-  // 복합 클라이언트 필터링 및 검색, 정렬 연산
   const processedIdeas = useMemo(() => {
-    // 1) 필터 및 검색 수행
     const result = ideas.filter((idea) => {
-      // 카테고리 필터
       const matchCat = category === "전체" || idea.category === category;
-      
-      // 학교급 필터
       const matchLevel = schoolLevel === "전체" || idea.targetSchoolLevel === schoolLevel;
       
-      // 상태 필터 (failed는 기본적으로 all에서 숨기고 별도 failed 필터 혹은 failures 탭에서 보게 유도)
       let matchStatus = true;
-      if (statusFilter === "all") {
-        matchStatus = idea.status !== "failed"; // 실패 목록은 기본적으로 제외
-      } else {
+      if (statusFilter !== "all") {
         matchStatus = idea.status === statusFilter;
       }
 
-      // 검색어 매칭 (제목, 문제 상황, 핵심 아이디어 검색)
       const term = searchTerm.toLowerCase().trim();
       const matchSearch = 
         !term || 
@@ -115,10 +83,9 @@ export default function IdeaRepository() {
       return matchCat && matchLevel && matchStatus && matchSearch;
     });
 
-    // 2) 정렬 수행
     result.sort((a, b) => {
       if (sortBy === "newest") {
-        return b.createdAt.getTime() - a.createdAt.getTime();
+        return (b.createdAt?.getTime ? b.createdAt.getTime() : 0) - (a.createdAt?.getTime ? a.createdAt.getTime() : 0);
       }
       
       if (sortBy === "rating") {
@@ -167,7 +134,6 @@ export default function IdeaRepository() {
       {/* Search & Sorting & Status Controls */}
       <div className="glass-panel p-6 rounded-2xl border border-card-border space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-          {/* Search bar */}
           <div className="md:col-span-6 relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-slate-500" />
@@ -181,7 +147,6 @@ export default function IdeaRepository() {
             />
           </div>
 
-          {/* Status filter */}
           <div className="md:col-span-3 flex items-center gap-2 bg-slate-900/40 border border-slate-800 rounded-xl px-3 py-1">
             <Filter className="w-4 h-4 text-slate-500 shrink-0" />
             <select
@@ -189,7 +154,7 @@ export default function IdeaRepository() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full bg-transparent border-none text-xs text-slate-300 focus:outline-none focus:ring-0 cursor-pointer py-1.5"
             >
-              <option value="all">상태: 전체보기 (실패 제외)</option>
+              <option value="all">상태: 전체 아이디어 보기</option>
               <option value="draft">상태: 검토 대기 (draft)</option>
               <option value="saved">상태: 저장됨 (saved)</option>
               <option value="excellent">상태: 우수 후보 (excellent)</option>
@@ -198,7 +163,6 @@ export default function IdeaRepository() {
             </select>
           </div>
 
-          {/* Sorting filter */}
           <div className="md:col-span-3 flex items-center gap-2 bg-slate-900/40 border border-slate-800 rounded-xl px-3 py-1">
             <ArrowUpDown className="w-4 h-4 text-slate-500 shrink-0" />
             <select
@@ -217,7 +181,6 @@ export default function IdeaRepository() {
 
         <hr className="border-card-border/50" />
 
-        {/* Categories Chip selectors */}
         <CategoryFilter
           selectedCategory={category}
           onSelectCategory={setCategory}
@@ -225,7 +188,6 @@ export default function IdeaRepository() {
           onSelectSchoolLevel={setSchoolLevel}
         />
 
-        {/* Reset button */}
         {(searchTerm || category !== "전체" || schoolLevel !== "전체" || statusFilter !== "all" || sortBy !== "newest") && (
           <div className="flex justify-end pt-1">
             <button
@@ -249,18 +211,10 @@ export default function IdeaRepository() {
         </div>
       ) : processedIdeas.length === 0 ? (
         <div className="glass-panel py-16 px-6 text-center rounded-2xl border border-slate-800/80 max-w-md mx-auto space-y-4">
-          <h3 className="text-md font-bold text-slate-400">검색 조건에 맞는 아이디어가 없습니다.</h3>
+          <h3 className="text-md font-bold text-slate-400">등록된 아이디어가 없습니다.</h3>
           <p className="text-xs text-slate-600 max-w-[280px] mx-auto leading-relaxed">
-            검색어 입력을 변경하거나 카테고리/상태 필터를 확장하여 다른 아이디어를 발굴해 보세요.
+            [아이디어 생성] 메뉴에서 첫 발명 아이디어를 생성해 보세요!
           </p>
-          {ideas.length > 0 && (
-            <button
-              onClick={handleResetFilters}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-            >
-              필터 초기화
-            </button>
-          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

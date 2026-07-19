@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Save, AlertCircle, CheckCircle2, Sliders, MessageSquare, Terminal } from "lucide-react";
+import { Settings, Save, AlertCircle, CheckCircle2, Sliders, MessageSquare, Terminal, Lock, KeyRound } from "lucide-react";
 
 const CATEGORIES = [
   "생활안전",
@@ -26,6 +26,11 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // 관리자 전용 비밀번호 잠금 상태
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authError, setAuthError] = useState("");
+
   const [settings, setSettings] = useState({
     aiProvider: "gemini",
     geminiModel: "gemini-2.5-flash",
@@ -39,6 +44,14 @@ export default function SettingsPage() {
     telegramChatId: "",
     autoGenTime: "07:00",
   });
+
+  // 세션 동안 인증 상태 보존 확인
+  useEffect(() => {
+    const sessionAuth = sessionStorage.getItem("settings_unlocked");
+    if (sessionAuth === "true") {
+      setIsUnlocked(true);
+    }
+  }, []);
 
   useEffect(() => {
     async function loadSettings() {
@@ -58,6 +71,20 @@ export default function SettingsPage() {
     }
     loadSettings();
   }, []);
+
+  // 관리자 암호 인증 처리
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+
+    // 관리자 비밀번호 검증 (기본값: admin1234)
+    if (passwordInput === "admin1234") {
+      setIsUnlocked(true);
+      sessionStorage.setItem("settings_unlocked", "true");
+    } else {
+      setAuthError("연구실 관리자 비밀번호가 일치하지 않습니다.");
+    }
+  };
 
   const handleChange = (key: string, val: string | number) => {
     setSettings((prev) => ({ ...prev, [key]: val }));
@@ -95,6 +122,56 @@ export default function SettingsPage() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-slate-400 font-medium">연구소 내부 통제 장치를 로드 중...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 🔐 미인증 시 비밀번호 입력 카드 노출
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center max-w-md mx-auto px-4">
+        <div className="glass-panel p-8 rounded-2xl border border-card-border shadow-2xl w-full space-y-6">
+          <div className="flex flex-col items-center text-center">
+            <div className="p-4 bg-gradient-to-tr from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-2xl mb-4 text-amber-400">
+              <Lock className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-white tracking-tight">관리자 전용 인증</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              API 키 및 텔레그램 토큰이 포함된 환경 설정 페이지입니다.<br />
+              연구실 관리자 비밀번호를 입력해 주십시오.
+            </p>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="space-y-4 pt-2">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                관리자 비밀번호
+              </label>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900/80 py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
+                />
+                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
+              </div>
+            </div>
+
+            {authError && (
+              <p className="text-xs text-rose-400 font-medium">{authError}</p>
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer"
+            >
+              보안 설정 잠금 해제
+            </button>
+          </form>
         </div>
       </div>
     );

@@ -30,27 +30,37 @@ export default function SoilNewsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
 
+  // 🛡️ Firestore 데이터 로드 및 중복 제목 정리 (Deduplication)
   const fetchNews = async () => {
     try {
       const newsRef = collection(db, "news");
       const q = query(newsRef, orderBy("createdAt", "desc"), limit(100));
       const snap = await getDocs(q);
 
-      const loaded: SoilNews[] = [];
-      snap.forEach((doc) => {
-        const data = doc.data();
-        loaded.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
-        } as SoilNews);
+      const loadedMap = new Map<string, SoilNews>();
+
+      // 1. 고정 리얼 뉴스 10종 우선 배치
+      SOIL_NEWS.forEach((item) => {
+        loadedMap.set(item.title, item);
       });
 
-      if (loaded.length > 0) {
-        setNewsList(loaded);
-      }
+      // 2. DB 뉴스 수집 및 동일 제목 중복 거르기
+      snap.forEach((doc) => {
+        const data = doc.data();
+        const title = data.title;
+        // 더미 무한 반복 문구는 거르고 참신한 기사만 수집
+        if (title && !title.includes("[AI 실시간 사회이슈 탐색]") && !loadedMap.has(title)) {
+          loadedMap.set(title, {
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
+          } as SoilNews);
+        }
+      });
+
+      setNewsList(Array.from(loadedMap.values()));
     } catch (err) {
-      console.warn("Firestore fetch bypassed, using seed news:", err);
+      console.warn("Firestore fetch bypassed, using high quality seed news:", err);
       setNewsList(SOIL_NEWS);
     } finally {
       setLoading(false);
@@ -61,17 +71,17 @@ export default function SoilNewsPage() {
     fetchNews();
   }, []);
 
-  // ⚡ 실시간 AI 불편 기사 탐색 및 추가
+  // ⚡ 실시간 AI 불편 기사 탐색 및 추가 (100% 다채로운 기사 착상)
   const handleGenerateNews = async () => {
     setGenerating(true);
     setToastMessage("");
     try {
+      const targetCat = category !== "전체" ? category : "생활안전";
+
       const res = await fetch("/api/generate-news", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: category !== "전체" ? category : "생활안전",
-        }),
+        body: JSON.stringify({ category: targetCat }),
       });
 
       const data = await res.json();
@@ -81,9 +91,14 @@ export default function SoilNewsPage() {
           createdAt: new Date(),
         };
 
-        // UI 최상단 추가 및 토스트 노출
-        setNewsList((prev) => [newNewsItem, ...prev]);
-        setToastMessage(`✨ AI가 새로운 사회 불편 뉴스를 탐색하여 목록 최상단에 추가했습니다!`);
+        // 제목 중복 검사 후 탑재
+        setNewsList((prev) => {
+          const exists = prev.some((n) => n.title === newNewsItem.title);
+          if (exists) return prev;
+          return [newNewsItem, ...prev];
+        });
+
+        setToastMessage(`✨ AI가 새로운 사회 불편 뉴스를 탐색하여 목록에 추가했습니다!`);
         setTimeout(() => setToastMessage(""), 5000);
       }
     } catch (err) {
@@ -98,6 +113,7 @@ export default function SoilNewsPage() {
     router.push(url);
   };
 
+  // 클라이언트 카테고리 & 검색어 필터링
   const filteredNews = useMemo(() => {
     return newsList.filter((news) => {
       const matchCat = category === "전체" || news.category === category;
@@ -139,7 +155,7 @@ export default function SoilNewsPage() {
           className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-600/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
-          <span>{generating ? "AI가 새 불편 뉴스 탐색 중..." : "⚡ AI 불편 기사 즉시 탐색"}</span>
+          <span>{generating ? "AI가 새 불편 기사 탐색 중..." : "⚡ AI 불편 기사 즉시 탐색"}</span>
         </button>
       </div>
 
@@ -173,7 +189,7 @@ export default function SoilNewsPage() {
         <div className="flex h-[40vh] items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-slate-400">데이터베이스에서 사회 기사를 불러오는 중...</span>
+            <span className="text-sm text-slate-400">사회 기사를 불러오는 중...</span>
           </div>
         </div>
       ) : filteredNews.length === 0 ? (
@@ -187,7 +203,7 @@ export default function SoilNewsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredNews.map((news) => (
             <div
-              key={news.id}
+              key={news.id || news.title}
               className="glass-panel glass-panel-hover rounded-2xl p-6 flex flex-col justify-between gap-5 relative overflow-hidden transition-all duration-300 border border-card-border/40"
             >
               <div className="absolute top-0 right-0 w-24 h-24 blur-3xl rounded-full opacity-10 pointer-events-none -mr-8 -mt-8 bg-sky-400" />

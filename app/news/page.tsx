@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { collection, getDocs, query, orderBy, limit, addDoc } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { SOIL_NEWS } from "@/constants/soilNews";
 import CategoryFilter from "@/components/CategoryFilter";
-import { Newspaper, Lightbulb, ArrowRight, ExternalLink, Globe, Search, RefreshCw } from "lucide-react";
+import { Newspaper, Lightbulb, ArrowRight, ExternalLink, Globe, Search, RefreshCw, CheckCircle2 } from "lucide-react";
 
 interface SoilNews {
   id: string;
@@ -25,11 +25,11 @@ export default function SoilNewsPage() {
   const [newsList, setNewsList] = useState<SoilNews[]>(SOIL_NEWS);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
 
-  // 🛡️ Firestore 수집 시 Permission 에러 예방 Fail-Safe 로더
   const fetchNews = async () => {
     try {
       const newsRef = collection(db, "news");
@@ -50,8 +50,7 @@ export default function SoilNewsPage() {
         setNewsList(loaded);
       }
     } catch (err) {
-      console.warn("Firestore fetch bypassed, using high quality seed news:", err);
-      // 보안 규칙 거부 시 기본 고품질 뉴스 목록 유지
+      console.warn("Firestore fetch bypassed, using seed news:", err);
       setNewsList(SOIL_NEWS);
     } finally {
       setLoading(false);
@@ -62,42 +61,33 @@ export default function SoilNewsPage() {
     fetchNews();
   }, []);
 
-  // ⚡ 수동 AI 불편 기사 즉시 발굴 및 추가 (클라이언트 즉시 반영 포함)
+  // ⚡ 실시간 AI 불편 기사 탐색 및 추가
   const handleGenerateNews = async () => {
     setGenerating(true);
-    const cat = category !== "전체" ? category : "생활안전";
-    const newId = `news-${Date.now()}`;
-
-    const newNewsItem: SoilNews = {
-      id: newId,
-      title: `[AI 실시간 사회이슈 탐색] ${cat} 분야 사용 고충과 안전 사고 주의보`,
-      source: "안전이슈 탐구팀 / " + new Date().toLocaleDateString("ko-KR"),
-      url: `https://www.google.com/search?q=${encodeURIComponent(cat)}+불편+사고`,
-      problem: `최근 ${cat} 영역에서 기존 제품의 시인성 부족과 안전장치 부재로 인해 어린이와 학생들의 사용자 불만이 연이어 접수되고 있습니다.`,
-      category: cat,
-      aiInspiration: `구조적 개선을 통해 사고 위험을 원천 차단하고 학생 시제품 수준에서 구현 가능한 감지 센서 및 스마트 보조 기구 착상 추천`,
-      suggestedPrompt: `${cat} 영역의 실생활 고충을 해결하는 참신한 발명품`,
-      createdAt: new Date(),
-    };
-
-    // 1. UI 즉시 반영 (Fail-Safe)
-    setNewsList((prev) => [newNewsItem, ...prev]);
-
-    // 2. Firestore 저장 시도 (Permission Error 무시)
+    setToastMessage("");
     try {
-      const newsRef = collection(db, "news");
-      await addDoc(newsRef, {
-        title: newNewsItem.title,
-        source: newNewsItem.source,
-        url: newNewsItem.url,
-        problem: newNewsItem.problem,
-        category: newNewsItem.category,
-        aiInspiration: newNewsItem.aiInspiration,
-        suggestedPrompt: newNewsItem.suggestedPrompt,
-        createdAt: new Date(),
+      const res = await fetch("/api/generate-news", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: category !== "전체" ? category : "생활안전",
+        }),
       });
+
+      const data = await res.json();
+      if (data.success && data.news) {
+        const newNewsItem: SoilNews = {
+          ...data.news,
+          createdAt: new Date(),
+        };
+
+        // UI 최상단 추가 및 토스트 노출
+        setNewsList((prev) => [newNewsItem, ...prev]);
+        setToastMessage(`✨ AI가 새로운 사회 불편 뉴스를 탐색하여 목록 최상단에 추가했습니다!`);
+        setTimeout(() => setToastMessage(""), 5000);
+      }
     } catch (err) {
-      console.warn("Firestore news write bypassed:", err);
+      console.error("News generation error:", err);
     } finally {
       setGenerating(false);
     }
@@ -123,6 +113,14 @@ export default function SoilNewsPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-20 right-5 z-50 bg-sky-900 border border-sky-500 text-sky-200 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce">
+          <CheckCircle2 className="w-5 h-5 text-sky-400" />
+          <span className="text-xs font-bold">{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="pb-6 border-b border-card-border flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -141,7 +139,7 @@ export default function SoilNewsPage() {
           className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-600/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
-          <span>{generating ? "새 불편 기사 탐색 중..." : "⚡ AI 불편 기사 즉시 탐색"}</span>
+          <span>{generating ? "AI가 새 불편 뉴스 탐색 중..." : "⚡ AI 불편 기사 즉시 탐색"}</span>
         </button>
       </div>
 

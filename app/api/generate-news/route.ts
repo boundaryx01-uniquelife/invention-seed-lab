@@ -10,9 +10,9 @@ const newsSchema = {
     source: { type: "string", description: "언론사 및 출처" },
     url: { type: "string", description: "참고 포털 검색 URL" },
     problem: { type: "string", description: "기사 속 실생활 고충 문제" },
-    category: { type: "string", description: "카테고리 (생활안전, 학교생활, 환경·에너지 등)" },
+    category: { type: "string", description: "카테고리" },
     aiInspiration: { type: "string", description: "학생 발명 착상 아이디어 방향" },
-    suggestedPrompt: { type: "string", description: "아이디어 생성실에 입력될 프롬프트" }
+    suggestedPrompt: { type: "string", description: "아이디어 생성실 입력 프롬프트" }
   },
   required: ["title", "source", "url", "problem", "category", "aiInspiration", "suggestedPrompt"],
   additionalProperties: false
@@ -22,7 +22,7 @@ const fallbackNews = [
   {
     title: "[사회 이슈] 빗물 노면 미끄러짐 사고 급증, 대중교통 승강장 안전 대책 시급",
     source: "교통안전 신문 / 2026.07",
-    url: "https://www.google.com/search?q=버스승강장+미끄러짐+사고",
+    url: "https://search.naver.com/search.naver?where=news&query=버스승강장+미끄러짐+사고",
     problem: "장마철 버스 정류장과 지하철 입구 블록의 보행자 미끄러짐 낙상 사고가 매년 30% 이상 증가하고 있으나 시공 비용 문제로 차일피일 미뤄지는 고충",
     category: "생활안전",
     aiInspiration: "수분에 반응하여 마찰 계수를 순간적으로 높여주는 친환경 모듈형 논슬립 패드 및 센서등 고안",
@@ -31,7 +31,7 @@ const fallbackNews = [
   {
     title: "[학교 현장] 교실 무선 충전기 엉킴과 발열 문제로 화재 우려 목소리",
     source: "교육안전 일보 / 2026.07",
-    url: "https://www.google.com/search?q=교실+스마트기기+충전+화재",
+    url: "https://search.naver.com/search.naver?where=news&query=교실+스마트기기+충전+화재",
     problem: "디지털 교과서 도입으로 각 교실에 30개 이상의 스마트기기를 동시 충전하면서 케이블 꼬임과 과열로 소방 안전에 위협을 받는 현장",
     category: "학교생활",
     aiInspiration: "케이블 정리가 자동으로 되며 과열 시 전원을 물리적으로 이격시키는 자동 소화 거치대 발명",
@@ -71,7 +71,11 @@ export async function POST(request: Request) {
       newsData = fallbackNews[0];
     }
 
-    // Firestore 저장
+    // 네이버 뉴스 검색 직통 URL로 깨짐 없이 깔끔 바인딩
+    const searchQuery = newsData.title.replace(/\[.*?\]/g, "").trim();
+    newsData.url = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(searchQuery)}`;
+
+    // Firestore 저장 시도
     let docId = `news-${Date.now()}`;
     try {
       const newsRef = collection(db, "news");

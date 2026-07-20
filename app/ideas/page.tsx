@@ -16,7 +16,8 @@ export default function IdeaRepository() {
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState("전체");
   const [schoolLevel, setSchoolLevel] = useState("전체");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // 기본값: "saved_all" (평가받아 저장 승인된 아이디어들만 기본 노출)
+  const [statusFilter, setStatusFilter] = useState("saved_all");
   const [sortBy, setSortBy] = useState("newest");
 
   const fetchIdeas = async () => {
@@ -59,7 +60,7 @@ export default function IdeaRepository() {
     setSearchTerm("");
     setCategory("전체");
     setSchoolLevel("전체");
-    setStatusFilter("all");
+    setStatusFilter("saved_all");
     setSortBy("newest");
   };
 
@@ -68,8 +69,11 @@ export default function IdeaRepository() {
       const matchCat = category === "전체" || idea.category === category;
       const matchLevel = schoolLevel === "전체" || idea.targetSchoolLevel === schoolLevel;
       
+      // 💡 정밀 상태 필터링: "saved_all" 일 때는 평가를 받아 저장 승인된 아이디어만 선별
       let matchStatus = true;
-      if (statusFilter !== "all") {
+      if (statusFilter === "saved_all") {
+        matchStatus = idea.status === "saved" || idea.status === "excellent" || idea.status === "developing";
+      } else if (statusFilter !== "all") {
         matchStatus = idea.status === statusFilter;
       }
 
@@ -126,7 +130,7 @@ export default function IdeaRepository() {
             아이디어 저장소
           </h2>
           <p className="text-slate-400 text-sm mt-1">
-            등록된 발명 아이디어들의 전체 명단을 검색하고 심사 상태를 제어합니다.
+            평가를 거쳐 검증 및 저장(Saved/Excellent) 승인된 우수 발명 아이디어들의 정식 보관소입니다.
           </p>
         </div>
       </div>
@@ -154,12 +158,13 @@ export default function IdeaRepository() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full bg-transparent border-none text-xs text-slate-300 focus:outline-none focus:ring-0 cursor-pointer py-1.5"
             >
-              <option value="all">상태: 전체 아이디어 보기</option>
-              <option value="draft">상태: 검토 대기 (draft)</option>
-              <option value="saved">상태: 저장됨 (saved)</option>
+              <option value="saved_all">보관소: 평가 승인작만 보기 (기본)</option>
+              <option value="draft">보관소: 미평가 검토 대기 (draft)</option>
+              <option value="saved">상태: 일반 저장됨 (saved)</option>
               <option value="excellent">상태: 우수 후보 (excellent)</option>
-              <option value="developing">상태: 발전 중 (developing)</option>
+              <option value="developing">상태: 심층 발전 중 (developing)</option>
               <option value="failed">상태: 실패 목록 (failed)</option>
+              <option value="all">전체 보기 (초안+실패 포함)</option>
             </select>
           </div>
 
@@ -188,7 +193,7 @@ export default function IdeaRepository() {
           onSelectSchoolLevel={setSchoolLevel}
         />
 
-        {(searchTerm || category !== "전체" || schoolLevel !== "전체" || statusFilter !== "all" || sortBy !== "newest") && (
+        {(searchTerm || category !== "전체" || schoolLevel !== "전체" || statusFilter !== "saved_all" || sortBy !== "newest") && (
           <div className="flex justify-end pt-1">
             <button
               onClick={handleResetFilters}
@@ -206,14 +211,14 @@ export default function IdeaRepository() {
         <div className="flex h-[40vh] items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-slate-400">데이터베이스에서 아이디어를 조회 중...</span>
+            <span className="text-sm text-slate-400">보관된 저장소 아이디어를 조회 중...</span>
           </div>
         </div>
       ) : processedIdeas.length === 0 ? (
         <div className="glass-panel py-16 px-6 text-center rounded-2xl border border-slate-800/80 max-w-md mx-auto space-y-4">
-          <h3 className="text-md font-bold text-slate-400">등록된 아이디어가 없습니다.</h3>
+          <h3 className="text-md font-bold text-slate-400">평가 승인되어 저장된 아이디어가 없습니다.</h3>
           <p className="text-xs text-slate-600 max-w-[280px] mx-auto leading-relaxed">
-            [아이디어 생성] 메뉴에서 첫 발명 아이디어를 생성해 보세요!
+            [오늘의 아이디어]나 [아이디어 생성]에서 초안을 평가(3.5점 이상)하여 아이디어 저장소로 승격시켜 보세요!
           </p>
         </div>
       ) : (

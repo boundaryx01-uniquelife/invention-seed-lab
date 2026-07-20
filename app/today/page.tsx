@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { Idea } from "@/types/idea";
 import IdeaCard from "@/components/IdeaCard";
 import CategoryFilter from "@/components/CategoryFilter";
-import { Sparkles, RefreshCw, Zap } from "lucide-react";
+import { Sparkles, Zap } from "lucide-react";
 
 export default function TodayIdeasPage() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -16,26 +16,30 @@ export default function TodayIdeasPage() {
   const [category, setCategory] = useState("전체");
   const [schoolLevel, setSchoolLevel] = useState("전체");
 
-  // 🛡️ Firestore 예외 무시 Fail-Safe 로딩
+  // 🛡️ Firestore 데이터 수집 및 제목 중복 제거 (Deduplication)
   const fetchTodayIdeas = async () => {
     setLoading(true);
     try {
       const ideasRef = collection(db, "ideas");
-      const q = query(ideasRef, orderBy("createdAt", "desc"), limit(30));
+      const q = query(ideasRef, orderBy("createdAt", "desc"), limit(60));
       const snap = await getDocs(q);
 
-      const loaded: Idea[] = [];
+      const loadedMap = new Map<string, Idea>();
       snap.forEach((doc) => {
         const data = doc.data();
-        loaded.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
-          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt || Date.now()),
-        } as Idea);
+        const title = data.title;
+        // 동일 제목 중복 제거 (가장 최신 1개만 수집)
+        if (title && !loadedMap.has(title)) {
+          loadedMap.set(title, {
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
+            updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt || Date.now()),
+          } as Idea);
+        }
       });
 
-      setIdeas(loaded);
+      setIdeas(Array.from(loadedMap.values()));
     } catch (err) {
       console.warn("Firestore fetch today ideas bypassed:", err);
     } finally {
@@ -70,8 +74,16 @@ export default function TodayIdeasPage() {
           createdAt: new Date(),
           updatedAt: new Date(),
         }));
-        // UI 즉시 추가
-        setIdeas((prev) => [...formatted, ...prev]);
+
+        // 중복 없이 UI 즉시 추가
+        setIdeas((prev) => {
+          const map = new Map<string, Idea>();
+          formatted.forEach((item) => map.set(item.title, item));
+          prev.forEach((item) => {
+            if (!map.has(item.title)) map.set(item.title, item);
+          });
+          return Array.from(map.values());
+        });
       }
     } catch (err) {
       console.error("Auto generation error:", err);
@@ -86,12 +98,22 @@ export default function TodayIdeasPage() {
     );
   };
 
+  // 클라이언트 카테고리/학교급 필터 및 2차 중복 안전 검사
   const filteredIdeas = useMemo(() => {
-    return ideas.filter((idea) => {
+    const seen = new Set<string>();
+    const result: Idea[] = [];
+
+    for (const idea of ideas) {
       const matchCat = category === "전체" || idea.category === category;
       const matchLevel = schoolLevel === "전체" || idea.targetSchoolLevel === schoolLevel;
-      return matchCat && matchLevel;
-    });
+      
+      if (matchCat && matchLevel && idea.title && !seen.has(idea.title)) {
+        seen.add(idea.title);
+        result.push(idea);
+      }
+    }
+
+    return result;
   }, [ideas, category, schoolLevel]);
 
   return (
@@ -153,7 +175,7 @@ export default function TodayIdeasPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredIdeas.map((idea) => (
-            <IdeaCard key={idea.id} idea={idea} onRated={handleRated} />
+            <IdeaCard key={idea.id || idea.title} idea={idea} onRated={handleRated} />
           ))}
         </div>
       )}

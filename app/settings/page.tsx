@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Save, AlertCircle, CheckCircle2, Sliders, MessageSquare, Terminal, Lock, KeyRound } from "lucide-react";
+import { Settings, Save, AlertCircle, CheckCircle2, Sliders, MessageSquare, Terminal, Lock, KeyRound, LogOut } from "lucide-react";
 
 const CATEGORIES = [
   "생활안전",
@@ -26,7 +26,7 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // 관리자 전용 비밀번호 잠금 상태
+  // 🔐 관리자 전용 비밀번호 잠금 상태
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState("");
@@ -45,7 +45,6 @@ export default function SettingsPage() {
     autoGenTime: "07:00",
   });
 
-  // 세션 동안 인증 상태 보존 확인
   useEffect(() => {
     const sessionAuth = sessionStorage.getItem("settings_unlocked");
     if (sessionAuth === "true") {
@@ -72,18 +71,24 @@ export default function SettingsPage() {
     loadSettings();
   }, []);
 
-  // 관리자 암호 인증 처리
+  // 관리자 암호 인증 처리 (비밀번호: admin1234)
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
 
-    // 관리자 비밀번호 검증 (기본값: admin1234)
     if (passwordInput === "admin1234") {
       setIsUnlocked(true);
       sessionStorage.setItem("settings_unlocked", "true");
+      setPasswordInput("");
     } else {
-      setAuthError("연구실 관리자 비밀번호가 일치하지 않습니다.");
+      setAuthError("연구실 관리자 비밀번호가 일치하지 않습니다. (기본 암호: admin1234)");
     }
+  };
+
+  // 🔒 다시 잠금 처리
+  const handleLockSettings = () => {
+    setIsUnlocked(false);
+    sessionStorage.removeItem("settings_unlocked");
   };
 
   const handleChange = (key: string, val: string | number) => {
@@ -105,7 +110,7 @@ export default function SettingsPage() {
 
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(data.message || "모든 설정이 반영되었습니다.");
+        setSuccessMsg(data.message || "모든 설정이 성공적으로 반영되었습니다.");
       } else {
         setError(data.error || "설정 저장에 실패했습니다.");
       }
@@ -127,18 +132,18 @@ export default function SettingsPage() {
     );
   }
 
-  // 🔐 미인증 시 비밀번호 입력 카드 노출
+  // 🔐 미인증 시 관리자 비밀번호 입력 폼 노출
   if (!isUnlocked) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center max-w-md mx-auto px-4">
         <div className="glass-panel p-8 rounded-2xl border border-card-border shadow-2xl w-full space-y-6">
           <div className="flex flex-col items-center text-center">
-            <div className="p-4 bg-gradient-to-tr from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-2xl mb-4 text-amber-400">
+            <div className="p-4 bg-gradient-to-tr from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-2xl mb-4 text-amber-400 shadow-lg shadow-amber-500/10">
               <Lock className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold text-white tracking-tight">관리자 전용 인증</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              API 키 및 텔레그램 토큰이 포함된 환경 설정 페이지입니다.<br />
+            <h3 className="text-xl font-bold text-white tracking-tight">🔒 관리자 전용 보안 인증</h3>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed font-sans">
+              API 키, AI 모델명 및 텔레그램 연동 토큰이 포함된 통제 페이지입니다.<br />
               연구실 관리자 비밀번호를 입력해 주십시오.
             </p>
           </div>
@@ -146,7 +151,7 @@ export default function SettingsPage() {
           <form onSubmit={handleAuthSubmit} className="space-y-4 pt-2">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-2">
-                관리자 비밀번호
+                관리자 암호
               </label>
               <div className="relative">
                 <input
@@ -162,7 +167,7 @@ export default function SettingsPage() {
             </div>
 
             {authError && (
-              <p className="text-xs text-rose-400 font-medium">{authError}</p>
+              <p className="text-xs text-rose-400 font-medium leading-relaxed">{authError}</p>
             )}
 
             <button
@@ -180,7 +185,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       {/* Header Banner */}
-      <div className="pb-6 border-b border-card-border flex justify-between items-center">
+      <div className="pb-6 border-b border-card-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-2">
             <Settings className="w-8 h-8 text-sky-400" />
@@ -190,6 +195,15 @@ export default function SettingsPage() {
             AI 모델, 점수 임계점 및 알림 봇 연동을 일괄 제어하는 통제 대시보드입니다.
           </p>
         </div>
+
+        {/* 잠금 버튼 */}
+        <button
+          onClick={handleLockSettings}
+          className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+        >
+          <LogOut className="w-4 h-4 text-amber-400" />
+          <span>보안 잠금</span>
+        </button>
       </div>
 
       {error && (

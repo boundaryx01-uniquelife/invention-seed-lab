@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateWithFallback, cleanAndParseJson } from "@/lib/ai";
+import { collection, writeBatch, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 // AI가 준수해야 할 개별 아이디어의 JSON 스키마
 const ideaSchema = {
@@ -135,10 +137,32 @@ ${prompt ? `- 사용자 추가 기획 의도/참고사항: ${prompt}` : ""}
 
     const parsedIdeas = cleanAndParseJson<any[]>(responseText);
 
+    // ⚡ Firestore DB 에 생성된 아이디어 영구 자동 적재
+    const batch = writeBatch(db);
+    const ideasRef = collection(db, "ideas");
+    const savedIdeas: any[] = [];
+
+    parsedIdeas.forEach((item) => {
+      const newDocRef = doc(ideasRef);
+      const newIdea = {
+        ...item,
+        id: newDocRef.id,
+        status: "draft",
+        averageScore: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: "user-ai",
+      };
+      batch.set(newDocRef, newIdea);
+      savedIdeas.push(newIdea);
+    });
+
+    await batch.commit();
+
     return NextResponse.json({
       success: true,
       provider,
-      ideas: parsedIdeas,
+      ideas: savedIdeas,
     });
   } catch (error: any) {
     console.error("아이디어 AI 생성 오류:", error);

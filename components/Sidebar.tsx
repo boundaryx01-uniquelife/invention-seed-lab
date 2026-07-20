@@ -7,7 +7,6 @@ import {
   Atom,
   FolderHeart,
   LayoutDashboard,
-  MessageSquare,
   Newspaper,
   PlusCircle,
   Settings,
@@ -23,6 +22,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
 
+  // 💡 불편함 입력실을 '아이디어 생성' 내부로 흡수 통합하여 메뉴바를 직관적으로 간소화
   const menuItems = [
     { name: "대시보드", path: "/", icon: LayoutDashboard },
     { name: "오늘의 아이디어", path: "/today", icon: Sparkles },
@@ -30,7 +30,6 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     { name: "아이디어 생성", path: "/generate", icon: PlusCircle },
     { name: "아이디어 저장소", path: "/ideas", icon: FolderHeart },
     { name: "실패 목록", path: "/failures", icon: AlertTriangle },
-    { name: "불편함 입력실", path: "/painpoints", icon: MessageSquare },
     { name: "설정", path: "/settings", icon: Settings },
   ];
 

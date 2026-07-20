@@ -8,22 +8,25 @@ export async function POST(
 ) {
   try {
     const { ideaId } = await params;
-    const { scores } = await request.json();
+    const body = await request.json();
 
     if (!ideaId) {
       return NextResponse.json({ success: false, error: "아이디어 ID가 필요합니다." }, { status: 400 });
     }
 
-    if (!scores || typeof scores !== "object") {
-      return NextResponse.json({ success: false, error: "유효한 평가 점수 데이터가 없습니다." }, { status: 400 });
-    }
+    // scores 객체 혹은 body 루트 파싱 호환
+    const scoresData = body.scores || body;
 
-    const { novelty = 3, feasibility = 3, utility = 3, studentFit = 3, marketability = 3 } = scores;
-    const scoreArray = [novelty, feasibility, utility, studentFit, marketability].map(Number);
+    const novelty = Number(scoresData.novelty || 3);
+    const feasibility = Number(scoresData.feasibility || 3);
+    const utility = Number(scoresData.utility || scoresData.problemClarity || 3);
+    const studentFit = Number(scoresData.studentFit || scoresData.contestSuitability || 3);
+    const marketability = Number(scoresData.marketability || scoresData.patentPotential || 3);
+
+    const scoreArray = [novelty, feasibility, utility, studentFit, marketability];
     const avgScore = Number((scoreArray.reduce((a, b) => a + b, 0) / scoreArray.length).toFixed(1));
 
     const ideaRef = doc(db, "ideas", ideaId);
-
     let updatedIdeaData: any = null;
 
     await runTransaction(db, async (transaction) => {
@@ -48,6 +51,7 @@ export async function POST(
         averageScore: avgScore,
         scores: { novelty, feasibility, utility, studentFit, marketability },
         status: nextStatus,
+        memo: body.memo || "",
         updatedAt: new Date(),
       };
 
@@ -58,7 +62,11 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "평가가 성공적으로 저장되었습니다.",
-      idea: updatedIdeaData,
+      data: {
+        averageScore: avgScore,
+        status: updatedIdeaData.status,
+        idea: updatedIdeaData,
+      },
     });
   } catch (error: any) {
     console.error("아이디어 채점 오류:", error);

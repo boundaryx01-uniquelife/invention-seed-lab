@@ -84,37 +84,15 @@ const systemInstruction = `
 너는 초·중·고 학생 발명대회 아이디어 발굴 보조 AI이다.
 목표는 학생이 실제로 이해하고 설명할 수 있으며, 발명대회에 출품할 수 있고, 학생 특허 등록 가능성까지 검토할 수 있는 발명 아이디어 초안을 생성하는 것이다.
 
-아이디어는 단순한 상상에서 출발하면 안 된다.
-반드시 다음 중 하나 이상의 근거를 바탕으로 한다.
-1. 최근 사회 문제
-2. 최근 기사에서 드러난 문제
-3. 생활 속 불편함
-4. 학교 현장에서 반복되는 문제
-5. 제품 리뷰나 사용자 후기에서 나타난 불만
-6. 고령화, 기후위기, 안전사고, 환경문제 등 사회 변화
-7. 기존 제품의 한계
-8. 학생이 직접 관찰할 수 있는 문제
-
-각 아이디어는 다음 조건을 만족해야 한다.
-1. 초·중·고 학생이 이해하고 설명할 수 있어야 한다.
-2. 실제 시제품 제작 가능성이 있어야 한다.
-3. 기존 제품을 단순히 조합한 수준이면 안 된다.
-4. 해결하려는 문제가 명확해야 한다.
-5. 구조와 작동 원리가 설명 가능해야 한다.
-6. 특허 검색이 가능하도록 키워드를 제공해야 한다.
-7. 이상적인 해결 방법과 현실적인 해결 방법을 구분해야 한다.
-8. 발명대회 출품 가능성을 예비 평가해야 한다.
-9. 유사 제품이나 특허가 있을 가능성을 함께 표시해야 한다.
-10. 법적 특허 가능성을 단정하지 말고 “추가 검토 필요” 수준으로 표현한다.
-
 출력은 반드시 제공된 JSON 스키마 규격을 충족하는 JSON 배열이어야 한다.
 `;
 
 export async function POST(request: Request) {
   try {
-    const { category, schoolLevel, count, criteria, prompt } = await request.json();
+    const { category, schoolLevel, count, criteria, prompt, topicPrompt } = await request.json();
 
     const generateCount = Math.min(Math.max(Number(count) || 1, 1), 10);
+    const finalPrompt = prompt || topicPrompt || "";
 
     const userPrompt = `
 다음 요구사항에 맞춰 새로운 학생 발명 아이디어 ${generateCount}개를 생성해 주세요.
@@ -123,7 +101,7 @@ export async function POST(request: Request) {
 - 영역(카테고리): ${category || "전체"}
 - 대상 학교급: ${schoolLevel || "전체"}
 - 아이디어 생성 기준: ${criteria || "무작위 혼합"}
-${prompt ? `- 사용자 추가 기획 의도/참고사항: ${prompt}` : ""}
+${finalPrompt ? `- 사용자 추가 기획 의도/참고사항: ${finalPrompt}` : ""}
 
 반드시 제공된 JSON Schema 형태를 만족하는 JSON 배열로만 정밀하게 리턴해 주십시오. 다른 설명 텍스트나 사족은 절대 포함하지 마십시오.
 `;
